@@ -7,6 +7,7 @@ from signal import signal, SIGINT
 import csv
 import argparse
 import os
+import shutil
 time.sleep(15)
 cam = sl.Camera()
 
@@ -39,13 +40,21 @@ def main(opt):
     ser.flushOutput()
     ser.readline()
 
-    start = datetime.now(timezone.utc)
-
     coords = ["Null", "Null", "Null", "Null", "Null", "Null"]
+    enough_space = True
     while True:
+        total, used, free = shutil.disk_usage('/')
+        if free < 10 * 1024 **3:
+            enough_space = False
+        elif free > 50 * 1024 ** 3:
+            enough_space = True
         if status != sl.ERROR_CODE.SUCCESS:
             print("Camera Open", status, "Exit program.")
             exit(1)
+        if enough_space == False or status != sl.ERROR_CODE.SUCCESS:
+            time.sleep(60)
+            continue
+        start = datetime.now(timezone.utc)
         recording_param = sl.RecordingParameters(opt.output_svo_file_path +opt.vehicle_key+ '/'+ get_current_datetime(start) +".svo2",
                                                  sl.SVO_COMPRESSION_MODE.LOSSLESS)  # Enable recording with the filename specified in argument
         err = cam.enable_recording(recording_param)
@@ -86,7 +95,7 @@ def main(opt):
             writer.writeheader()
             writer.writerows(gps_coords_list)
         cam.disable_recording()
-        start += timedelta(minutes=1)
+
 
 
 if __name__ == "__main__":
