@@ -70,10 +70,14 @@ def main(opt):
                 if nmea_sentence[0] == "b'$GNGGA":
                     # The GNGGA Line is GNGGA, time, latitude, N/S, Longitude, E/W
                     coords = nmea_sentence[1:6]
+            cam_time = cam.get_timestamp(sl.TIME_REFERENCE.CURRENT).get_milliseconds()
 
-            gps_coords_list.append({"Camera_time": cam.get_timestamp(sl.TIME_REFERENCE.CURRENT), "GPS_time": coords[0], "Latitude": coords[1],
+            gps_coords_list.append({"Camera_time": datetime.fromtimestamp(cam_time / 1000, tz=timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+                                    "GPS_time": coords[0],
+                                    "Latitude": coords[1],
                                     "Latitude_direction": coords[2],
-                                    "Longitude": coords[3], "Longitude_direction": coords[4]})
+                                    "Longitude": coords[3],
+                                    "Longitude_direction": coords[4]})
             coords = ["Null" for i in range(5)]
         with open(opt.output_svo_file_path +opt.vehicle_key + '/'+ get_current_datetime(start) +".csv", "w", newline="") as csvfile:
             fieldnames = ["Camera_time", "GPS_time", "Latitude", "Latitude_direction", "Longitude",
