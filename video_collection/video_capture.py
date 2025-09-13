@@ -81,7 +81,7 @@ def main(opt):
                     coords = nmea_sentence[1:6]
             cam_time = cam.get_timestamp(sl.TIME_REFERENCE.CURRENT).get_milliseconds()
 
-            gps_coords_list.append({"Camera_time": datetime.fromtimestamp(cam_time / 1000, tz=timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+            gps_coords_list.append({"Camera_time": str(datetime.fromtimestamp(cam_time / 1000, tz=timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")),
                                     "GPS_time": coords[0],
                                     "Latitude": coords[1],
                                     "Latitude_direction": coords[2],
