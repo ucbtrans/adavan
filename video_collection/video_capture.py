@@ -8,7 +8,7 @@ import csv
 import argparse
 import os
 import shutil
-time.sleep(15)
+
 cam = sl.Camera()
 
 
