@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Collection Control</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f0f0f0;
+        }
+        #toggle-btn {
+            padding: 20px 40px;
+            font-size: 1.5em;
+            cursor: pointer;
+            border: none;
+            border-radius: 8px;
+            color: white;
+            transition: background-color 0.3s ease;
+        }
+        #toggle-btn.start {
+            background-color: #28a745; /* Green */
+        }
+        #toggle-btn.stop {
+            background-color: #dc3545; /* Red */
+        }
+    </style>
+</head>
+<body>
+    <button id="toggle-btn" class="stop" onclick="toggleRecording()">Stop Video Collection</button>
+    <script>
+        let isRecording = true;
+
+        async function toggleRecording() {
+            const button = document.getElementById('toggle-btn');
+            const state = isRecording ? 'stop' : 'start';
+
+            const response = await fetch('/toggle_recording', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ state: state }),
+            });
+
+            const result = await response.json();
+            
+            if (result.status === 'started') {
+                isRecording = true;
+                button.textContent = 'Stop Video Collection';
+                button.classList.remove('start');
+                button.classList.add('stop');
+            } else if (result.status === 'stopped') {
+                isRecording = false;
+                button.textContent = 'Start Video Collection';
+                button.classList.remove('stop');
+                button.classList.add('start');
+            } else {
+                console.error("Failed to change recording state.");
+            }
+        }
+    </script>
+</body>
+</html>
