@@ -31,7 +31,7 @@ def convert_svo_to_video(svo_input_path, output_video_path):
     # Ensure all data types are available in the SVO file
     init_params.svo_real_time_mode = False 
     init_params.coordinate_system = sl.COORDINATE_SYSTEM.IMAGE 
-    init_params.coordinate_unit = sl.UNIT.MILLIMETER
+    #init_params.coordinate_unit = sl.UNIT.MILLIMETER
 
     # 2. Create and Open the ZED Camera/SVO Handler
     zed = sl.Camera()
@@ -42,8 +42,10 @@ def convert_svo_to_video(svo_input_path, output_video_path):
         return
 
     # 3. Retrieve SVO Metadata for VideoWriter
-    svo_res = zed.get_camera_information().camera_resolution
-    svo_fps = zed.get_camera_information().camera_fps
+    cam_info = zed.get_camera_information()
+
+    svo_res = cam_info.camera_configuration.resolution
+    svo_fps = cam_info.camera_configuration.fps
     width = svo_res.width
     height = svo_res.height
     
@@ -107,13 +109,6 @@ def convert_svo_to_video(svo_input_path, output_video_path):
 
 
 if __name__ == "__main__":
-    INPUT_FILE = "adavan/video_test_storage/21-08-2025_18-12-32.svo2"
+    INPUT_FILE ="/home/ashwinb/Documents/adavan/models/experiments/21-09-2025_22-36-40.svo2" 
     OUTPUT_FILE = "output_video.mp4"
-    
-    if len(sys.argv) < 3:
-        print("\nUsage: python svo2_to_mp4_converter.py <input_svo_path> <output_mp4_path>")
-        print("Example: python svo2_to_mp4_converter.py my_data.svo2 output.mp4")
-    else:
-        INPUT_FILE = sys.argv[1]
-        OUTPUT_FILE = sys.argv[2]
-        convert_svo_to_video(INPUT_FILE, OUTPUT_FILE)
+    convert_svo_to_video(INPUT_FILE, OUTPUT_FILE)
