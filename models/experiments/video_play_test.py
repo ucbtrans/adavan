@@ -63,7 +63,7 @@ def convert_svo_to_video(svo_input_path, output_video_path):
         return
 
     # 5. Prepare data container and runtime parameters
-    image_zed = sl.Mat()
+    image_zed = sl.Mat(width, height, sl.MAT_TYPE.U8_C4)
     runtime_parameters = sl.RuntimeParameters()
     
     frame_count = 0
@@ -85,7 +85,7 @@ def convert_svo_to_video(svo_input_path, output_video_path):
             image_ocv = image_zed.get_data()
             
             # Convert RGBA (ZED default) to BGR (OpenCV default)
-            frame_bgr = cv2.cvtColor(image_ocv, cv2.COLOR_RGBA2BGR)
+            frame_bgr = cv2.cvtColor(image_ocv, cv2.COLOR_BGRA2BGR)
 
             # Write the frame to the output video file
             out.write(frame_bgr)
@@ -109,6 +109,6 @@ def convert_svo_to_video(svo_input_path, output_video_path):
 
 
 if __name__ == "__main__":
-    INPUT_FILE ="/home/ashwinb/Documents/adavan/models/experiments/21-09-2025_22-36-40.svo2" 
+    INPUT_FILE = "/home/ashwinb/Documents/adavan/video_collection/22-10-2025_19-38-03.svo2" 
     OUTPUT_FILE = "output_video.mp4"
     convert_svo_to_video(INPUT_FILE, OUTPUT_FILE)

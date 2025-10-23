@@ -25,11 +25,13 @@ import sys
 import math
 
 def main():
+    svo_file_path = "/home/ashwinb/Downloads/22-08-2025_23-44-58.svo2"
     # Create a Camera object
     zed = sl.Camera()
 
     # Create a InitParameters object and set configuration parameters
     init_params = sl.InitParameters()
+    init_params.set_from_svo_file(svo_file_path);
     init_params.depth_mode = sl.DEPTH_MODE.NEURAL  # Use NEURAL depth mode
     init_params.coordinate_units = sl.UNIT.MILLIMETER  # Use meter units (for depth measurements)
 
@@ -65,7 +67,6 @@ def main():
             x = round(image.get_width() / 2)
             y = round(image.get_height() / 2)
             err, point_cloud_value = point_cloud.get_value(x, y)
-
             if math.isfinite(point_cloud_value[2]):
                 distance = math.sqrt(point_cloud_value[0] * point_cloud_value[0] +
                                     point_cloud_value[1] * point_cloud_value[1] +
@@ -73,7 +74,10 @@ def main():
                 print(f"Distance to Camera at {{{x};{y}}}: {distance}")
             else : 
                 print(f"The distance can not be computed at {{{x};{y}}}")
-            i += 1    
+            i += 1   
+        elif grab_status == sl.ERROR_CODE.END_OF_SVOFILE_REACHED:
+            print("SVO end has been reached.")
+            break # Exit the loop
            
 
     # Close the camera
