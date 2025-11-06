@@ -16,7 +16,7 @@ DEVICE = 'cuda:0' if torch.cuda.is_available() else 'cpu'
 # SAHI Slicing Parameters
 SLICE_HEIGHT = 1024
 SLICE_WIDTH = 1024
-OVERLAP_RATIO = 0.2
+OVERLAP_RATIO = 0.4
 
 # --- Core Video Processing Function ---
 
@@ -69,9 +69,6 @@ def run_yolo_sliced_video(model_path: str, input_video_path: str, output_video_p
     while cap.isOpened():
         ret, frame = cap.read() # frame is a NumPy array (BGR format)
 
-        if frame_count > 100:
-            break
-
         if not ret:
             break
 
@@ -90,7 +87,8 @@ def run_yolo_sliced_video(model_path: str, input_video_path: str, output_video_p
             slice_width=SLICE_WIDTH,
             overlap_height_ratio=OVERLAP_RATIO,
             overlap_width_ratio=OVERLAP_RATIO,
-            postprocess_type='NMS'
+            postprocess_type='NMS',
+            postprocess_match_threshold=0.3
         )
 
         # 4. Draw Bounding Boxes onto the Frame
