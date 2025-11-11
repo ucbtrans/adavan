@@ -96,7 +96,7 @@ def convert_osm_to_xodr(osm_file_path, xodr_file_path, lane_width=4.0):
     try:
         with open(xodr_file_path, 'w', encoding='utf-8') as f:
             f.write(xodr_data)
-        print(f"\n✅ Success! OpenDRIVE file saved to: {xodr_file_path}")
+        print(f"\nSuccess! OpenDRIVE file saved to: {xodr_file_path}")
     except Exception as e:
         print(f"Error saving XODR file: {e}")
 
