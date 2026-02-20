@@ -17,7 +17,8 @@ SAMPLES, = glob_wildcards(os.path.join(STEP1_IN, "{sample}.svo2"))
 rule all:
     input:
         expand(os.path.join(FINAL_OUT, "{sample}.mp4"), sample=SAMPLES),
-        expand(os.path.join(FINAL_OUT, "{sample}.csv"), sample=SAMPLES)
+        expand(os.path.join(FINAL_OUT, "{sample}.csv"), sample=SAMPLES)#,
+        #expand(os.path.join(FINAL_OUT, "{sample}.json"), sample=SAMPLES)
 
 # Step 1: Process SVO to MP4 and move the CSV to the output folder [cite: 1, 2]
 rule process_svo:

@@ -129,9 +129,9 @@ def zed_depth_sense_from_svo(svo_file_path):
                 distance = math.sqrt(point_cloud_value[0] * point_cloud_value[0] +
                                     point_cloud_value[1] * point_cloud_value[1] +
                                     point_cloud_value[2] * point_cloud_value[2])
-                print(f"Distance to Camera at {{{x};{y}}}: {distance}")
+                #print(f"Distance to Camera at {{{x};{y}}}: {distance}")
             else : 
-                print(f"The distance can not be computed at {{{x};{y}}}")
+                pass#print(f"The distance can not be computed at {{{x};{y}}}")
             i += 1   
         elif grab_status == sl.ERROR_CODE.END_OF_SVOFILE_REACHED:
             print("SVO end has been reached.")

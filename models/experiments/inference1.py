@@ -20,7 +20,7 @@ OVERLAP_RATIO = 0.4
 
 # --- Core Video Processing Function ---
 
-def run_yolo_sliced_video(model_path: str, input_video_path: str, output_video_path: str):
+def run_yolo_sliced_video(model_path: str, input_video_path: str, output_video_path: str, svo_start_time=0.0):
     """
     Reads a video frame-by-frame, runs SAHI sliced inference on the NumPy array 
     (in-memory), and writes the annotated frame to a new video file.
@@ -65,6 +65,7 @@ def run_yolo_sliced_video(model_path: str, input_video_path: str, output_video_p
         return
 
     # 3. Main Frame Processing Loop
+    detection_results = []
     frame_count = 0
     while cap.isOpened():
         ret, frame = cap.read() # frame is a NumPy array (BGR format)
@@ -75,6 +76,8 @@ def run_yolo_sliced_video(model_path: str, input_video_path: str, output_video_p
         frame_count += 1
         sys.stdout.write(f"\rProcessing frame {frame_count}/{total_frames}...")
         sys.stdout.flush()
+
+        timestamp = svo_start_time + (frame_count / fps)
 
         # Run SAHI sliced inference directly on the NumPy array
         # NOTE: SAHI requires RGB input, so convert the BGR frame
@@ -100,6 +103,12 @@ def run_yolo_sliced_video(model_path: str, input_video_path: str, output_video_p
             score = prediction.score.value
             category_name = prediction.category.name
             
+            cx = (bbox[0] + bbox[2]) / 2
+            cy = (bbox[1] + bbox[3]) / 2
+            
+            # Store: (timestamp, frame_number, (centroid_x, centroid_y))
+            detection_results.append((timestamp, frame_count, (cx, cy)))
+            
             x_min, y_min, x_max, y_max = [int(val) for val in bbox]
             
             # Draw rectangle (BGR color format)
@@ -119,6 +128,7 @@ def run_yolo_sliced_video(model_path: str, input_video_path: str, output_video_p
     print("\nVideo processing complete.")
     print(f"Annotated video saved to: {output_video_path}")
     print(f"Total frames processed: {frame_count}")
+    return detection_results
 
 
 if __name__ == "__main__":

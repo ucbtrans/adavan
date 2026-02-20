@@ -1,6 +1,7 @@
 from models.experiments.video_play_test1 import convert_svo_to_video
 from models.experiments.inference1 import run_yolo_sliced_video
 from feature_processing.zed_depth_sensing import zed_depth_sense_from_svo
+from models.experiments.avi_to_mp4 import convert_avi_to_mp4
 import configparser
 import argparse  # Added for command line arguments
 import time
@@ -51,33 +52,10 @@ def main(input_file,output_dir):
         print(f"Error during SVO to MP4 conversion: {e}")
         return
 
-    print(f"2. Generating 3D Point Cloud: {input_file} -> {POINT_CLOUD_OUTPUT_DIR}")
-
-    try:
-        zed_depth_sense_from_svo(input_file)
-            #svo_file=input_file,
-            #output_file=POINT_CLOUD_OUTPUT_DIR
-            #max_dist=MAX_DISTANCE,
-            #min_dist=MIN_DISTANCE
-        #)
-        print("3D Point Cloud generation complete.")
-    except Exception as e:
-        print(f"Error during Depth Sensing: {e}")
-
-    os.makedirs(output_dir, exist_ok=True)
-    input_video = output_mp4
-    yolo_output_dir = file_root + ".avi" # output_dir + "/" + file_root + ".avi"
-    # Delete if exists
-
-    if os.path.exists(yolo_output_dir):
-        shutil.rmtree(yolo_output_dir)
-    
-    file_path = Path(yolo_output_dir)
-    file_path.unlink(missing_ok=True)
-    
-    print(f"3. Running YOLO Inference on Video: {input_video} to {yolo_output_dir}")
+    print(f"2. Running YOLO Inference on Video: {input_video} to {yolo_output_dir}")
+    detections = []
     try:        
-        run_yolo_sliced_video(
+        detections = run_yolo_sliced_video(
             model_path="models/experiments/best.pt",
             input_video_path=input_video,
             output_video_path=yolo_output_dir
@@ -90,7 +68,28 @@ def main(input_file,output_dir):
     except Exception as e:
         print(f"Error during YOLO Inference: {e}")
         return
+    
+    # --- 3. Convert AVI to MP4 and CLEANUP ---
+    final_annotated_mp4 = os.path.join(output_dir, f"{file_root}_annotated.mp4")
+    convert_avi_to_mp4(temp_avi, final_annotated_mp4)
+    
+    if os.path.exists(temp_avi):
+        os.remove(temp_avi)
+        print(f"Success: Deleted temporary AVI: {temp_avi}")
 
+
+    print(f"3. Generating 3D Point Cloud: {input_file} -> {POINT_CLOUD_OUTPUT_DIR}")
+
+    try:
+        zed_depth_sense_from_svo(input_file)
+            #svo_file=input_file,
+            #output_file=POINT_CLOUD_OUTPUT_DIR
+            #max_dist=MAX_DISTANCE,
+            #min_dist=MIN_DISTANCE
+        #)
+        print("3D Point Cloud generation complete.")
+    except Exception as e:
+        print(f"Error during Depth Sensing: {e}")
 
     print("\nAbsolute Positioning")
     # # Example call when implemented:
