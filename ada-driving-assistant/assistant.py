@@ -5,8 +5,10 @@ Uses Claude API to generate real-time driving advisories from detection and GPS 
 
 import os
 import json
+from dotenv import load_dotenv
 from anthropic import Anthropic
 
+load_dotenv()
 client = Anthropic()  # uses ANTHROPIC_API_KEY env var
 
 SYSTEM_PROMPT = """You are an AI co-pilot assistant for an autonomous ADA van operating in work zones.
