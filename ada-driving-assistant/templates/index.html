@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ADA Driving Assistant</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #0d1117;
+      color: #e6edf3;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 24px 16px;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+    header h1 {
+      font-size: 1.8rem;
+      font-weight: 700;
+      color: #58a6ff;
+    }
+    header p { color: #8b949e; font-size: 0.9rem; margin-top: 4px; }
+
+    .card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 12px;
+      padding: 20px 24px;
+      width: 100%;
+      max-width: 720px;
+      margin-bottom: 16px;
+    }
+
+    .card h2 {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #8b949e;
+      margin-bottom: 12px;
+    }
+
+    #advisory-text {
+      font-size: 1.15rem;
+      line-height: 1.6;
+      color: #e6edf3;
+      min-height: 60px;
+    }
+
+    #advisory-text.loading { color: #8b949e; font-style: italic; }
+    #advisory-text.error   { color: #f85149; }
+
+    .alert-banner {
+      display: none;
+      align-items: center;
+      gap: 10px;
+      background: #3d1a1a;
+      border: 1px solid #f85149;
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 16px;
+      width: 100%;
+      max-width: 720px;
+      font-weight: 600;
+      color: #f85149;
+    }
+    .alert-banner.visible { display: flex; }
+    .alert-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: #f85149;
+      animation: pulse 1s infinite;
+      flex-shrink: 0;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.3; }
+    }
+
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: 100%; max-width: 720px; }
+
+    .pos-row { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 0.9rem; }
+    .pos-label { color: #8b949e; }
+    .pos-value { color: #e6edf3; font-weight: 500; }
+
+    #detections-list { list-style: none; }
+    #detections-list li {
+      padding: 6px 0;
+      border-bottom: 1px solid #21262d;
+      font-size: 0.9rem;
+      display: flex;
+      justify-content: space-between;
+    }
+    #detections-list li:last-child { border-bottom: none; }
+    .det-label { color: #e6edf3; }
+    .det-meta  { color: #8b949e; }
+
+    #no-detections { color: #8b949e; font-size: 0.9rem; }
+
+    footer {
+      margin-top: 24px;
+      color: #8b949e;
+      font-size: 0.78rem;
+      text-align: center;
+    }
+    #last-updated { display: inline; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>ADA Driving Assistant</h1>
+  <p>Powered by Claude · refreshes every {{ poll_interval }}s</p>
+</header>
+
+<div class="alert-banner" id="worker-alert">
+  <div class="alert-dot"></div>
+  <span>Construction worker(s) detected ahead — slow down</span>
+</div>
+
+<div class="card">
+  <h2>Advisory</h2>
+  <div id="advisory-text" class="loading">Loading…</div>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <h2>Position</h2>
+    <div class="pos-row"><span class="pos-label">Street</span><span class="pos-value" id="street">—</span></div>
+    <div class="pos-row"><span class="pos-label">Latitude</span><span class="pos-value" id="lat">—</span></div>
+    <div class="pos-row"><span class="pos-label">Longitude</span><span class="pos-value" id="lon">—</span></div>
+    <div class="pos-row"><span class="pos-label">Time</span><span class="pos-value" id="pos-time">—</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Detections</h2>
+    <ul id="detections-list"><li id="no-detections">None</li></ul>
+  </div>
+</div>
+
+<footer>Last updated: <span id="last-updated">—</span></footer>
+
+<script>
+  async function refresh() {
+    try {
+      const res = await fetch('/api/state');
+      const data = await res.json();
+
+      // Advisory
+      const adv = document.getElementById('advisory-text');
+      if (data.error) {
+        adv.textContent = 'Error: ' + data.error;
+        adv.className = 'error';
+      } else {
+        adv.textContent = data.advisory || '—';
+        adv.className = '';
+      }
+
+      // Position
+      const p = data.position || {};
+      document.getElementById('street').textContent   = p.Street    || '—';
+      document.getElementById('lat').textContent      = p.Latitude  != null ? (+p.Latitude).toFixed(5)  : '—';
+      document.getElementById('lon').textContent      = p.Longitude != null ? (+p.Longitude).toFixed(5) : '—';
+      document.getElementById('pos-time').textContent = p.Time      || '—';
+
+      // Detections
+      const list = document.getElementById('detections-list');
+      const dets = data.detections || [];
+      if (dets.length === 0) {
+        list.innerHTML = '<li id="no-detections">None</li>';
+      } else {
+        list.innerHTML = dets.map(d => {
+          const dist = d.distance_m != null ? d.distance_m.toFixed(1) + 'm' : '?';
+          const ang  = d.angle_deg  != null ? d.angle_deg.toFixed(0)  + '°' : '';
+          return `<li><span class="det-label">${d.label}</span><span class="det-meta">${dist} ${ang}</span></li>`;
+        }).join('');
+      }
+
+      // Worker alert banner
+      const hasWorker = dets.some(d => d.label && d.label.toLowerCase().includes('worker'));
+      document.getElementById('worker-alert').classList.toggle('visible', hasWorker);
+
+      // Footer
+      document.getElementById('last-updated').textContent = data.last_updated || '—';
+    } catch (e) {
+      document.getElementById('advisory-text').textContent = 'Connection error.';
+      document.getElementById('advisory-text').className = 'error';
+    }
+  }
+
+  refresh();
+  setInterval(refresh, {{ poll_interval }} * 1000);
+</script>
+</body>
+</html>
