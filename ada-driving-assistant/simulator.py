@@ -2,14 +2,13 @@
 Simulation engine for ADA Driving Assistant.
 
 Generates N random traffic/road events distributed across city streets,
-with randomised locations, activation timestamps (8am–8pm), and lifespans
-varied ±10% from the type baseline.
+with randomised locations, activation timestamps (8am-8pm), and lifespans
+varied +-10% from the type baseline.
 """
 
 from __future__ import annotations
 
 import json
-import math
 import os
 import random
 from datetime import datetime, timedelta, timezone
@@ -25,7 +24,8 @@ from objects import (
 
 # ── Street loading ───────────────────────────────────────────────────────────
 
-_STREETS_FILE = os.path.join(os.path.dirname(__file__), "city_streets.json")
+_STREETS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "city_streets.json")
+
 
 def load_streets() -> list[dict]:
     with open(_STREETS_FILE) as f:
@@ -35,16 +35,23 @@ def load_streets() -> list[dict]:
 
 def random_point_on_street(street: dict) -> tuple[float, float]:
     """
-    Pick a random position along a street by interpolating between
-    two consecutive waypoints.
+    Pick a random position along a street.
+    Streets now have 'segments' (list of waypoint lists) instead of flat 'waypoints'.
+    Falls back to flat 'waypoints' for backwards compatibility.
     """
-    wps = street["waypoints"]
-    if len(wps) == 1:
-        return wps[0]["lat"], wps[0]["lon"]
+    segments = street.get("segments") or [street.get("waypoints", [])]
+    # Pick a random non-empty segment
+    non_empty = [s for s in segments if len(s) >= 2]
+    if not non_empty:
+        # Last resort: single point
+        seg = segments[0] if segments else []
+        if seg:
+            return seg[0]["lat"], seg[0]["lon"]
+        return 37.87, -122.27  # Berkeley centre fallback
 
-    # Choose a random segment
-    i = random.randint(0, len(wps) - 2)
-    p1, p2 = wps[i], wps[i + 1]
+    seg = random.choice(non_empty)
+    i = random.randint(0, len(seg) - 2)
+    p1, p2 = seg[i], seg[i + 1]
     t = random.random()
     lat = p1["lat"] + t * (p2["lat"] - p1["lat"])
     lon = p1["lon"] + t * (p2["lon"] - p1["lon"])
@@ -62,11 +69,28 @@ def random_activation(day: datetime) -> datetime:
 
 
 def varied_lifespan(obj_type: str) -> timedelta:
-    """Base lifespan ± uniform 10%."""
+    """Base lifespan +- uniform 10%."""
     base = LIFESPANS[obj_type]
     variation = base * 0.10
     seconds = base + random.uniform(-variation, variation)
     return timedelta(seconds=seconds)
+
+
+# ── Blocking helper ──────────────────────────────────────────────────────────
+
+def _blocking_option(street: dict) -> str:
+    """
+    Choose a random blocking mode.
+    If the street has only 1 lane per direction, 'one_lane' == 'all_lanes_one_direction'.
+    'entire_street' is valid for any lane count.
+    """
+    fwd = street.get("lanes_forward", 1)
+    bwd = street.get("lanes_backward", 1)
+    options = list(BLOCKING_OPTIONS)
+    # Only offer 'all_lanes_one_direction' when there are lanes in both directions
+    if fwd == 0 or bwd == 0:
+        options = [o for o in options if o != "all_lanes_one_direction"]
+    return random.choice(options)
 
 
 # ── Per-type factories ───────────────────────────────────────────────────────
@@ -76,6 +100,7 @@ def _random_car() -> dict:
 
 
 def _build_event(obj_type: str, lat: float, lon: float,
+                 street: dict,
                  active_at: datetime, inactive_at: datetime) -> dict:
     if obj_type == "single_cone":
         return make_single_cone(lat, lon, active_at, inactive_at)
@@ -85,7 +110,7 @@ def _build_event(obj_type: str, lat: float, lon: float,
         return make_cone_group(lat, lon, num, active_at, inactive_at)
 
     elif obj_type == "construction_zone":
-        blocking = random.choice(BLOCKING_OPTIONS)
+        blocking = _blocking_option(street)
         return make_construction_zone(lat, lon, blocking, active_at, inactive_at)
 
     elif obj_type == "car_accident":
@@ -146,8 +171,13 @@ def generate_events(n: int = 300, day: datetime | None = None) -> list[dict]:
         active_at   = random_activation(day)
         inactive_at = active_at + varied_lifespan(obj_type)
 
-        event = _build_event(obj_type, lat, lon, active_at, inactive_at)
-        event["street"] = street["name"]   # convenience field
+        event = _build_event(obj_type, lat, lon, street, active_at, inactive_at)
+
+        # Street metadata on every object
+        event["street"]          = street["name"]
+        event["lanes_forward"]   = street.get("lanes_forward", 1)
+        event["lanes_backward"]  = street.get("lanes_backward", 1)
+
         events.append(event)
 
     return events
@@ -177,7 +207,6 @@ if __name__ == "__main__":
     with open(args.out, "w") as f:
         json.dump(evts, f, indent=2)
 
-    # Summary
     from collections import Counter
     counts = Counter(e["type"] for e in evts)
     print(f"Generated {len(evts)} events -> {args.out}")
