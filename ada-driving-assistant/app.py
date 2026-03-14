@@ -1,82 +1,165 @@
 """
-ADA Driving Assistant – Flask web dashboard.
-Polls local data files and shows Claude-generated advisories.
+ADA Driving Assistant — Flask web application.
 """
 
-import os
 import json
+import os
 import time
-import threading
+from datetime import datetime, timezone
+
+import boto3
 from dotenv import load_dotenv
-from flask import Flask, render_template, jsonify
-from assistant import get_advisory
+from flask import Flask, jsonify, render_template, request
+
+import sessions as sess
+from assistant import answer_question
+from location import find_nearby_objects, geocode_address, random_location
 
 load_dotenv()
 
 app = Flask(__name__)
 
-# Paths to data files produced by the main pipeline
-POSITION_PATH = os.environ.get("POSITION_PATH", "../van_position.json")
-DETECTIONS_PATH = os.environ.get("DETECTIONS_PATH", "../models/experiments/latest_detections.json")
-POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "5"))  # seconds
+S3_BUCKET   = os.environ.get("S3_BUCKET",   "ada-driving-assistant")
+OBJECTS_KEY = os.environ.get("OBJECTS_KEY", "CA/Berkeley/city_objects.json")
 
-# Shared state updated by background thread
-_state = {
-    "advisory": "Initializing…",
-    "position": {},
-    "detections": [],
-    "last_updated": None,
-    "error": None,
-}
-_lock = threading.Lock()
+# ── S3 objects cache (refresh every 5 minutes) ───────────────────────────────
+
+_cache: dict = {"objects": [], "loaded_at": 0.0}
+_CACHE_TTL   = 300   # seconds
 
 
-def load_data():
-    position = {}
-    detections = []
-
-    if os.path.exists(POSITION_PATH):
-        with open(POSITION_PATH) as f:
-            position = json.load(f)
-
-    if os.path.exists(DETECTIONS_PATH):
-        with open(DETECTIONS_PATH) as f:
-            detections = json.load(f)
-
-    return position, detections
-
-
-def poll_loop():
-    while True:
+def get_objects() -> list[dict]:
+    now = time.time()
+    if now - _cache["loaded_at"] > _CACHE_TTL:
         try:
-            position, detections = load_data()
-            advisory = get_advisory(position, detections)
-            with _lock:
-                _state["advisory"] = advisory
-                _state["position"] = position
-                _state["detections"] = detections
-                _state["last_updated"] = time.strftime("%H:%M:%S")
-                _state["error"] = None
-        except Exception as e:
-            with _lock:
-                _state["error"] = str(e)
-                _state["last_updated"] = time.strftime("%H:%M:%S")
-        time.sleep(POLL_INTERVAL)
+            s3   = boto3.client("s3")
+            resp = s3.get_object(Bucket=S3_BUCKET, Key=OBJECTS_KEY)
+            _cache["objects"]   = json.loads(resp["Body"].read())
+            _cache["loaded_at"] = now
+        except Exception as exc:
+            app.logger.warning("Could not load objects from S3: %s", exc)
+    return _cache["objects"]
 
+
+# ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.route("/")
 def index():
-    return render_template("index.html", poll_interval=POLL_INTERVAL)
+    return render_template("index.html")
 
 
-@app.route("/api/state")
-def api_state():
-    with _lock:
-        return jsonify(dict(_state))
+# -- Location -----------------------------------------------------------------
+
+@app.route("/api/location/random")
+def api_random_location():
+    try:
+        loc = random_location()
+        return jsonify(loc)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/location/geocode", methods=["POST"])
+def api_geocode():
+    address = (request.json or {}).get("address", "").strip()
+    if not address:
+        return jsonify({"error": "address is required"}), 400
+    result = geocode_address(address)
+    if result:
+        return jsonify(result)
+    return jsonify({"error": f"Could not geocode: {address}"}), 404
+
+
+# -- Sessions -----------------------------------------------------------------
+
+@app.route("/api/session/list")
+def api_session_list():
+    return jsonify(sess.list_sessions())
+
+
+@app.route("/api/session/new", methods=["POST"])
+def api_session_new():
+    data    = request.json or {}
+    address = data.get("address", "").strip()
+    lat     = data.get("lat")
+    lon     = data.get("lon")
+    bearing = int(data.get("bearing", 0))
+
+    if not address or lat is None or lon is None:
+        return jsonify({"error": "address, lat, and lon are required"}), 400
+
+    from location import bearing_to_direction, reverse_geocode
+    bearing_dir = bearing_to_direction(bearing)
+    street      = data.get("street", "")
+
+    session = sess.create_session(address, float(lat), float(lon),
+                                  bearing, bearing_dir, street)
+    return jsonify(session)
+
+
+@app.route("/api/session/<session_id>")
+def api_session_get(session_id):
+    session = sess.get_session(session_id)
+    if not session:
+        return jsonify({"error": "Session not found"}), 404
+    return jsonify(session)
+
+
+@app.route("/api/session/<session_id>/resume", methods=["POST"])
+def api_session_resume(session_id):
+    """
+    Resume a previous session: copy location from old session into a new one.
+    A new session ID is created so history starts fresh, but location is reused.
+    """
+    old = sess.get_session(session_id)
+    if not old:
+        return jsonify({"error": "Session not found"}), 404
+
+    new_session = sess.create_session(
+        address           = old["address"],
+        lat               = old["lat"],
+        lon               = old["lon"],
+        bearing           = old["bearing"],
+        bearing_direction = old["bearing_direction"],
+        street            = old.get("street", ""),
+    )
+    return jsonify(new_session)
+
+
+# -- Q&A ----------------------------------------------------------------------
+
+@app.route("/api/ask", methods=["POST"])
+def api_ask():
+    data       = request.json or {}
+    session_id = data.get("session_id", "").strip()
+    question   = data.get("question", "").strip()
+
+    if not session_id or not question:
+        return jsonify({"error": "session_id and question are required"}), 400
+
+    session = sess.get_session(session_id)
+    if not session:
+        return jsonify({"error": "Session not found"}), 404
+
+    location = {
+        "address":           session["address"],
+        "lat":               session["lat"],
+        "lon":               session["lon"],
+        "bearing":           session["bearing"],
+        "bearing_direction": session["bearing_direction"],
+    }
+
+    objects       = get_objects()
+    nearby        = find_nearby_objects(location["lat"], location["lon"], objects)
+    history       = sess.get_history(session_id)
+
+    answer = answer_question(question, location, nearby, history)
+
+    sess.add_message(session_id, "user",      question)
+    sess.add_message(session_id, "assistant", answer)
+
+    return jsonify({"answer": answer, "nearby_count": len(nearby)})
 
 
 if __name__ == "__main__":
-    # Start background polling thread
-    t = threading.Thread(target=poll_loop, daemon=True)
-    t.start()
-    app.run(debug=False, host="0.0.0.0", port=5001)
+    app.run(debug=True, host="0.0.0.0", port=5001)

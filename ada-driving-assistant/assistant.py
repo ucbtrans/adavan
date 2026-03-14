@@ -1,111 +1,154 @@
 """
-ADA Driving Assistant
-Uses Claude API to generate real-time driving advisories from detection and GPS data.
+ADA Driving Assistant — Claude API integration.
+
+Two entry points:
+  get_advisory()      — short advisory from detection/position data (dashboard)
+  answer_question()   — multi-turn driving Q&A with session history
 """
 
+from __future__ import annotations
+
 import os
-import json
 from dotenv import load_dotenv
 from anthropic import Anthropic
 
 load_dotenv()
-client = Anthropic()  # uses ANTHROPIC_API_KEY env var
+client = Anthropic()
 
-SYSTEM_PROMPT = """You are an AI co-pilot assistant for an autonomous ADA van operating in work zones.
-Your job is to produce concise, clear driving advisories for the human driver based on:
-- Current street/GPS position
-- Objects detected ahead (traffic cones, construction workers)
-- Their approximate distances and positions
+# ── Shared helpers ────────────────────────────────────────────────────────────
 
-Rules:
-- Keep advisories under 3 sentences.
-- Always mention detected hazards and recommended action.
-- If nothing significant is detected, give a brief all-clear.
-- Use plain language, no jargon.
-- Prioritize worker safety above all else."""
+def _obj_summary(obj: dict) -> str:
+    """One-line description of a traffic object."""
+    t    = obj.get("type", "unknown").replace("_", " ")
+    dist = obj.get("_distance_m")
+    st   = obj.get("street", "")
+    dist_str = f" ({dist}m away)" if dist is not None else ""
+    street_str = f" on {st}" if st else ""
+
+    extras = []
+    if obj.get("blocking"):
+        extras.append(f"blocking: {obj['blocking'].replace('_', ' ')}")
+    if obj.get("num_cones"):
+        extras.append(f"{obj['num_cones']} cones")
+    if obj.get("cars"):
+        cars = ", ".join(f"{c['color']} {c['type']}" for c in obj["cars"])
+        extras.append(f"vehicles: {cars}")
+    if obj.get("police_present"):
+        extras.append("police on scene")
+    if obj.get("car_type"):
+        extras.append(f"{obj['car_color']} {obj['car_type']}")
+    if obj.get("directions_blocked"):
+        extras.append(f"blocking {obj['directions_blocked'].replace('_', ' ')}")
+    if obj.get("emergency_lights"):
+        extras.append("emergency lights on")
+    lanes_fwd = obj.get("lanes_forward")
+    lanes_bwd = obj.get("lanes_backward")
+    if lanes_fwd is not None:
+        extras.append(f"road: {lanes_fwd}+{lanes_bwd} lanes")
+
+    detail = f" [{', '.join(extras)}]" if extras else ""
+    return f"- {t}{street_str}{dist_str}{detail}"
 
 
-def build_prompt(position: dict, detections: list[dict]) -> str:
-    """
-    Build the user message from position and detection data.
+# ── Dashboard advisory ────────────────────────────────────────────────────────
 
-    Args:
-        position: dict with keys Time, Latitude, Longitude, Street
-        detections: list of dicts with keys label, distance_m, angle_deg
-    """
+_ADVISORY_SYSTEM = """You are an AI co-pilot for an ADA van in Berkeley, CA work zones.
+Produce a concise driving advisory (max 3 sentences) based on the current
+position and detected nearby objects. Prioritise worker safety."""
+
+
+def get_advisory(position: dict, detections: list[dict]) -> str:
     street = position.get("Street", "unknown street")
-    lat = position.get("Latitude", "N/A")
-    lon = position.get("Longitude", "N/A")
-
-    lines = [f"Current location: {street} (lat={lat}, lon={lon})."]
-
+    lat    = position.get("Latitude",  "N/A")
+    lon    = position.get("Longitude", "N/A")
+    lines  = [f"Location: {street} (lat={lat}, lon={lon})."]
     if detections:
-        lines.append(f"Objects detected ({len(detections)} total):")
+        lines.append(f"Detected ({len(detections)}):")
         for d in detections:
-            label = d.get("label", "unknown")
-            dist = d.get("distance_m")
+            dist  = d.get("distance_m")
             angle = d.get("angle_deg")
-            dist_str = f"{dist:.1f}m away" if dist is not None else "distance unknown"
-            angle_str = f", {angle:.0f}° off center" if angle is not None else ""
-            lines.append(f"  - {label}: {dist_str}{angle_str}")
+            lines.append(f"  - {d.get('label','?')}: "
+                         f"{f'{dist:.1f}m' if dist else '?'}"
+                         f"{f', {angle:.0f}deg' if angle else ''}")
     else:
-        lines.append("No hazards detected ahead.")
+        lines.append("No hazards detected.")
+
+    msg = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=256,
+        system=_ADVISORY_SYSTEM,
+        messages=[{"role": "user", "content": "\n".join(lines)}],
+    )
+    return msg.content[0].text.strip()
+
+
+# ── Session Q&A ───────────────────────────────────────────────────────────────
+
+_QA_SYSTEM = """You are ADA, an AI driving assistant for Berkeley, CA.
+The user is a driver asking about current road conditions near their location.
+
+Guidelines:
+- Be concise and clear — you are assisting a driver.
+- Mention specific streets, distances, and hazard types when relevant.
+- If asked about a specific direction or street, focus on that.
+- Advise on detours or caution as appropriate.
+- If there are no relevant hazards, say so briefly.
+- Never make up events not listed in the context.
+- Use natural, spoken language."""
+
+
+def _build_context(location: dict, nearby: list[dict]) -> str:
+    """Build the location+objects context block prepended to each conversation."""
+    address   = location.get("address", "unknown")
+    bearing   = location.get("bearing", 0)
+    direction = location.get("bearing_direction", "N")
+    lat       = location.get("lat", "?")
+    lon       = location.get("lon", "?")
+
+    lines = [
+        f"Driver location: {address} (lat={lat}, lon={lon})",
+        f"Heading: {direction} ({bearing} deg)",
+        "",
+    ]
+
+    if nearby:
+        lines.append(f"Active traffic events within 500m ({len(nearby)} total):")
+        for obj in nearby:
+            lines.append(_obj_summary(obj))
+    else:
+        lines.append("No active traffic events within 500m.")
 
     return "\n".join(lines)
 
 
-def get_advisory(position: dict, detections: list[dict]) -> str:
+def answer_question(question: str,
+                    location: dict,
+                    nearby_objects: list[dict],
+                    history: list[dict]) -> str:
     """
-    Call Claude to generate a driving advisory.
-
-    Returns:
-        Advisory string from Claude.
-    """
-    user_message = build_prompt(position, detections)
-
-    message = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=256,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_message}],
-    )
-
-    return message.content[0].text.strip()
-
-
-def get_advisory_from_files(position_path: str, detections_path: str | None = None) -> str:
-    """
-    Load data from files and return advisory.
+    Answer a driving question using Claude with full session history.
 
     Args:
-        position_path: Path to van_position.json
-        detections_path: Optional path to detections JSON file
+        question:       The user's latest question.
+        location:       Dict with address, lat, lon, bearing, bearing_direction.
+        nearby_objects: Active objects near the user from find_nearby_objects().
+        history:        Prior messages [{role, content}, ...].
+
+    Returns:
+        Claude's response string.
     """
-    with open(position_path) as f:
-        position = json.load(f)
+    context = _build_context(location, nearby_objects)
 
-    detections = []
-    if detections_path and os.path.exists(detections_path):
-        with open(detections_path) as f:
-            detections = json.load(f)
+    # Inject location context as the first user turn if history is empty,
+    # otherwise prepend it to the current question so it stays fresh.
+    context_note = f"[Current conditions]\n{context}\n\n[Question]\n{question}"
 
-    return get_advisory(position, detections)
+    messages = list(history) + [{"role": "user", "content": context_note}]
 
-
-if __name__ == "__main__":
-    # Demo with sample data
-    sample_position = {
-        "Time": "2026-03-13T10:00:00",
-        "Latitude": 37.8716,
-        "Longitude": -122.2727,
-        "Street": "Telegraph Ave",
-    }
-    sample_detections = [
-        {"label": "traffic cone", "distance_m": 12.3, "angle_deg": -5.0},
-        {"label": "traffic cone", "distance_m": 14.1, "angle_deg": 8.0},
-        {"label": "construction worker", "distance_m": 20.0, "angle_deg": 15.0},
-    ]
-
-    print("Generating advisory...")
-    advisory = get_advisory(sample_position, sample_detections)
-    print(f"\nAdvisory:\n{advisory}")
+    msg = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=512,
+        system=_QA_SYSTEM,
+        messages=messages,
+    )
+    return msg.content[0].text.strip()

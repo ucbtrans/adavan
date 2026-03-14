@@ -1,202 +1,651 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ADA Driving Assistant</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>ADA Driving Assistant</title>
+<style>
+/* ── Reset & base ─────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-    body {
-      font-family: 'Segoe UI', system-ui, sans-serif;
-      background: #0d1117;
-      color: #e6edf3;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 24px 16px;
-    }
+:root {
+  --bg:       #0d1117;
+  --surface:  #161b22;
+  --border:   #30363d;
+  --muted:    #8b949e;
+  --text:     #e6edf3;
+  --blue:     #58a6ff;
+  --green:    #3fb950;
+  --red:      #f85149;
+  --yellow:   #d29922;
+  --radius:   10px;
+}
 
-    header {
-      text-align: center;
-      margin-bottom: 24px;
-    }
-    header h1 {
-      font-size: 1.8rem;
-      font-weight: 700;
-      color: #58a6ff;
-    }
-    header p { color: #8b949e; font-size: 0.9rem; margin-top: 4px; }
+body {
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
 
-    .card {
-      background: #161b22;
-      border: 1px solid #30363d;
-      border-radius: 12px;
-      padding: 20px 24px;
-      width: 100%;
-      max-width: 720px;
-      margin-bottom: 16px;
-    }
+/* ── Header ─────────────────────────────────────────────────── */
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+header h1 { font-size: 1.2rem; color: var(--blue); font-weight: 700; }
+header h1 span { color: var(--muted); font-weight: 400; font-size: 0.9rem; margin-left: 8px; }
 
-    .card h2 {
-      font-size: 0.75rem;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: #8b949e;
-      margin-bottom: 12px;
-    }
+#wake-indicator {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 0.8rem; color: var(--muted);
+}
+#wake-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--border);
+  transition: background 0.3s;
+}
+#wake-dot.listening { background: var(--green); animation: pulse 1.5s infinite; }
+#wake-dot.active    { background: var(--blue);  animation: pulse 0.6s infinite; }
 
-    #advisory-text {
-      font-size: 1.15rem;
-      line-height: 1.6;
-      color: #e6edf3;
-      min-height: 60px;
-    }
+@keyframes pulse {
+  0%,100% { opacity:1; } 50% { opacity:.3; }
+}
 
-    #advisory-text.loading { color: #8b949e; font-style: italic; }
-    #advisory-text.error   { color: #f85149; }
+/* ── Layout ─────────────────────────────────────────────────── */
+.main {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
 
-    .alert-banner {
-      display: none;
-      align-items: center;
-      gap: 10px;
-      background: #3d1a1a;
-      border: 1px solid #f85149;
-      border-radius: 8px;
-      padding: 12px 16px;
-      margin-bottom: 16px;
-      width: 100%;
-      max-width: 720px;
-      font-weight: 600;
-      color: #f85149;
-    }
-    .alert-banner.visible { display: flex; }
-    .alert-dot {
-      width: 10px; height: 10px;
-      border-radius: 50%;
-      background: #f85149;
-      animation: pulse 1s infinite;
-      flex-shrink: 0;
-    }
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50%       { opacity: 0.3; }
-    }
+/* ── Sidebar ─────────────────────────────────────────────────── */
+aside {
+  width: 260px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+}
+aside h2 {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+  padding: 14px 16px 8px;
+  border-bottom: 1px solid var(--border);
+}
+#session-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+.session-item {
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  margin-bottom: 4px;
+  border: 1px solid transparent;
+  transition: background .15s, border-color .15s;
+}
+.session-item:hover      { background: #1f2937; border-color: var(--border); }
+.session-item.active-session { border-color: var(--blue); background: #1a2744; }
+.session-item .s-addr    { font-size: .85rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.session-item .s-meta    { font-size: .72rem; color: var(--muted); margin-top: 3px; }
+.session-item .s-badge   { display: inline-block; font-size: .65rem; padding: 1px 6px; border-radius: 99px; background: var(--border); color: var(--muted); margin-top: 4px; }
+.session-item .s-resume  { display: none; font-size: .72rem; color: var(--blue); cursor: pointer; margin-top: 4px; }
+.session-item:hover .s-resume { display: inline; }
 
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: 100%; max-width: 720px; }
+/* ── Content area ─────────────────────────────────────────────── */
+.content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
 
-    .pos-row { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 0.9rem; }
-    .pos-label { color: #8b949e; }
-    .pos-value { color: #e6edf3; font-weight: 500; }
+/* ── No-session splash ────────────────────────────────────────── */
+#splash {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  padding: 32px;
+}
+#splash h2 { font-size: 1.5rem; color: var(--text); text-align: center; }
+#splash p  { color: var(--muted); text-align: center; max-width: 380px; line-height: 1.6; }
 
-    #detections-list { list-style: none; }
-    #detections-list li {
-      padding: 6px 0;
-      border-bottom: 1px solid #21262d;
-      font-size: 0.9rem;
-      display: flex;
-      justify-content: space-between;
-    }
-    #detections-list li:last-child { border-bottom: none; }
-    .det-label { color: #e6edf3; }
-    .det-meta  { color: #8b949e; }
+/* ── Location setup panel ─────────────────────────────────────── */
+#location-panel {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 32px 24px;
+  max-width: 520px;
+  margin: auto;
+  width: 100%;
+}
+#location-panel h2 { font-size: 1.1rem; }
 
-    #no-detections { color: #8b949e; font-size: 0.9rem; }
+.loc-input-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+.loc-input-row input {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  padding: 10px 14px;
+  font-size: .95rem;
+  outline: none;
+}
+.loc-input-row input:focus { border-color: var(--blue); }
 
-    footer {
-      margin-top: 24px;
-      color: #8b949e;
-      font-size: 0.78rem;
-      text-align: center;
-    }
-    #last-updated { display: inline; }
-  </style>
+.bearing-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+.bearing-row label { color: var(--muted); font-size: .85rem; white-space: nowrap; }
+.bearing-row input[type=range] { flex: 1; accent-color: var(--blue); }
+#bearing-display { min-width: 60px; font-size: .85rem; color: var(--text); }
+
+/* ── Session view ─────────────────────────────────────────────── */
+#session-view {
+  display: none;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+
+.location-bar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-shrink: 0;
+  font-size: .85rem;
+}
+.location-bar .addr { font-weight: 600; color: var(--text); }
+.location-bar .meta { color: var(--muted); }
+.location-bar .dot  { width: 6px; height: 6px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
+
+/* ── Chat ───────────────────────────────────────────────────────── */
+#chat-log {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.msg { display: flex; flex-direction: column; max-width: 75%; }
+.msg.user      { align-self: flex-end; align-items: flex-end; }
+.msg.assistant { align-self: flex-start; align-items: flex-start; }
+
+.msg .bubble {
+  padding: 10px 14px;
+  border-radius: 14px;
+  font-size: .9rem;
+  line-height: 1.55;
+}
+.msg.user      .bubble { background: #1a3a5c; border-bottom-right-radius: 4px; }
+.msg.assistant .bubble { background: var(--surface); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+.msg .ts { font-size: .7rem; color: var(--muted); margin-top: 4px; }
+
+.typing-indicator .bubble {
+  display: flex; gap: 4px; align-items: center; padding: 12px 16px;
+}
+.typing-indicator .dot {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--muted);
+  animation: bounce .9s infinite;
+}
+.typing-indicator .dot:nth-child(2) { animation-delay: .15s; }
+.typing-indicator .dot:nth-child(3) { animation-delay: .30s; }
+@keyframes bounce { 0%,80%,100% { transform:translateY(0); } 40% { transform:translateY(-5px); } }
+
+/* ── Input bar ──────────────────────────────────────────────────── */
+.input-bar {
+  border-top: 1px solid var(--border);
+  padding: 12px 16px;
+  display: flex;
+  gap: 10px;
+  flex-shrink: 0;
+  background: var(--surface);
+}
+#question-input {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 10px 14px;
+  font-size: .9rem;
+  outline: none;
+  resize: none;
+  height: 42px;
+}
+#question-input:focus { border-color: var(--blue); }
+
+/* ── Buttons ────────────────────────────────────────────────────── */
+.btn {
+  padding: 9px 18px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  font-size: .88rem;
+  font-weight: 500;
+  transition: opacity .15s, background .15s;
+}
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+.btn-primary  { background: var(--blue);  color: #000; }
+.btn-secondary{ background: var(--surface); border: 1px solid var(--border); color: var(--text); }
+.btn-ghost    { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+.btn-icon     { padding: 9px 12px; font-size: 1rem; }
+.btn-mic      { background: var(--surface); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 9px 12px; cursor: pointer; font-size: 1rem; transition: background .15s, border-color .15s; }
+.btn-mic.recording { background: #3d1a1a; border-color: var(--red); color: var(--red); animation: pulse .8s infinite; }
+</style>
 </head>
 <body>
 
+<!-- ── Header ─────────────────────────────────────── -->
 <header>
-  <h1>ADA Driving Assistant</h1>
-  <p>Powered by Claude · refreshes every {{ poll_interval }}s</p>
+  <h1>ADA <span>Driving Assistant</span></h1>
+  <div id="wake-indicator">
+    <div id="wake-dot"></div>
+    <span id="wake-status">Say "Hey ADA" to start</span>
+  </div>
 </header>
 
-<div class="alert-banner" id="worker-alert">
-  <div class="alert-dot"></div>
-  <span>Construction worker(s) detected ahead — slow down</span>
-</div>
+<div class="main">
 
-<div class="card">
-  <h2>Advisory</h2>
-  <div id="advisory-text" class="loading">Loading…</div>
-</div>
+  <!-- ── Sidebar: previous sessions ─────────────── -->
+  <aside>
+    <h2>Previous Sessions</h2>
+    <div id="session-list"><p style="padding:12px;color:var(--muted);font-size:.8rem;">No previous sessions</p></div>
+  </aside>
 
-<div class="grid">
-  <div class="card">
-    <h2>Position</h2>
-    <div class="pos-row"><span class="pos-label">Street</span><span class="pos-value" id="street">—</span></div>
-    <div class="pos-row"><span class="pos-label">Latitude</span><span class="pos-value" id="lat">—</span></div>
-    <div class="pos-row"><span class="pos-label">Longitude</span><span class="pos-value" id="lon">—</span></div>
-    <div class="pos-row"><span class="pos-label">Time</span><span class="pos-value" id="pos-time">—</span></div>
-  </div>
+  <!-- ── Main content ───────────────────────────── -->
+  <div class="content">
 
-  <div class="card">
-    <h2>Detections</h2>
-    <ul id="detections-list"><li id="no-detections">None</li></ul>
-  </div>
-</div>
+    <!-- Splash / start screen -->
+    <div id="splash">
+      <h2>Welcome to ADA</h2>
+      <p>Start a new session to get real-time driving advisories based on current traffic events in Berkeley, CA.</p>
+      <button class="btn btn-primary" onclick="showLocationPanel()">Start Session</button>
+      <p style="font-size:.8rem;color:var(--muted);">or say "Hey ADA, start a new session"</p>
+    </div>
 
-<footer>Last updated: <span id="last-updated">—</span></footer>
+    <!-- Location setup -->
+    <div id="location-panel">
+      <h2>Where are you?</h2>
+
+      <div class="loc-input-row">
+        <input id="address-input" type="text" placeholder="Enter address (e.g. 2400 Telegraph Ave)" autocomplete="off"/>
+        <button class="btn btn-mic" id="addr-mic-btn" title="Speak address" onclick="startAddressSpeech()">🎤</button>
+        <button class="btn btn-secondary" onclick="suggestRandom()" title="Suggest random location">🎲</button>
+      </div>
+
+      <div class="bearing-row">
+        <label>Heading:</label>
+        <input type="range" id="bearing-slider" min="0" max="359" value="0" oninput="updateBearing()"/>
+        <span id="bearing-display">N (0°)</span>
+      </div>
+
+      <div style="display:flex;gap:10px;width:100%;">
+        <button class="btn btn-primary" style="flex:1" onclick="startSession()">Start Session</button>
+        <button class="btn btn-ghost" onclick="showSplash()">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Active session view -->
+    <div id="session-view">
+      <div class="location-bar">
+        <div class="dot"></div>
+        <span class="addr" id="session-addr">—</span>
+        <span class="meta" id="session-heading">—</span>
+        <span class="meta" id="session-time" style="margin-left:auto;"></span>
+      </div>
+
+      <div id="chat-log"></div>
+
+      <div class="input-bar">
+        <textarea id="question-input" placeholder="Ask ADA about road conditions…" onkeydown="handleKey(event)"></textarea>
+        <button class="btn btn-mic" id="question-mic-btn" onclick="startQuestionSpeech()" title="Speak question">🎤</button>
+        <button class="btn btn-primary" id="send-btn" onclick="sendQuestion()">Send</button>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /main -->
 
 <script>
-  async function refresh() {
-    try {
-      const res = await fetch('/api/state');
-      const data = await res.json();
+// ── State ──────────────────────────────────────────────────────────────
+let currentSessionId = null;
+let pendingLat = null, pendingLon = null;
+let wakeRecognition = null;
+let questionRecognition = null;
+let addressRecognition = null;
 
-      // Advisory
-      const adv = document.getElementById('advisory-text');
-      if (data.error) {
-        adv.textContent = 'Error: ' + data.error;
-        adv.className = 'error';
-      } else {
-        adv.textContent = data.advisory || '—';
-        adv.className = '';
-      }
+const DIRS = ["N","NE","E","SE","S","SW","W","NW"];
+function bearingLabel(b) {
+  return DIRS[Math.round(b/45)%8] + ' (' + b + '°)';
+}
+function fmtTime(iso) {
+  return new Date(iso).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+}
+function fmtDate(iso) {
+  const d = new Date(iso);
+  return d.toLocaleDateString([], {month:'short',day:'numeric'}) + ' ' + fmtTime(iso);
+}
 
-      // Position
-      const p = data.position || {};
-      document.getElementById('street').textContent   = p.Street    || '—';
-      document.getElementById('lat').textContent      = p.Latitude  != null ? (+p.Latitude).toFixed(5)  : '—';
-      document.getElementById('lon').textContent      = p.Longitude != null ? (+p.Longitude).toFixed(5) : '—';
-      document.getElementById('pos-time').textContent = p.Time      || '—';
+// ── Panel navigation ────────────────────────────────────────────────────
+function showSplash()         { hide('location-panel'); hide('session-view'); show('splash'); }
+function showLocationPanel()  { hide('splash'); hide('session-view'); show('location-panel'); }
+function showSessionView()    { hide('splash'); hide('location-panel'); show('session-view'); }
+function show(id) { document.getElementById(id).style.display = 'flex'; }
+function hide(id) { document.getElementById(id).style.display = 'none'; }
 
-      // Detections
-      const list = document.getElementById('detections-list');
-      const dets = data.detections || [];
-      if (dets.length === 0) {
-        list.innerHTML = '<li id="no-detections">None</li>';
-      } else {
-        list.innerHTML = dets.map(d => {
-          const dist = d.distance_m != null ? d.distance_m.toFixed(1) + 'm' : '?';
-          const ang  = d.angle_deg  != null ? d.angle_deg.toFixed(0)  + '°' : '';
-          return `<li><span class="det-label">${d.label}</span><span class="det-meta">${dist} ${ang}</span></li>`;
-        }).join('');
-      }
+// ── Bearing slider ──────────────────────────────────────────────────────
+function updateBearing() {
+  const b = parseInt(document.getElementById('bearing-slider').value);
+  document.getElementById('bearing-display').textContent = bearingLabel(b);
+}
 
-      // Worker alert banner
-      const hasWorker = dets.some(d => d.label && d.label.toLowerCase().includes('worker'));
-      document.getElementById('worker-alert').classList.toggle('visible', hasWorker);
+// ── Random location ──────────────────────────────────────────────────────
+async function suggestRandom() {
+  const btn = document.querySelector('[onclick="suggestRandom()"]');
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    const r = await fetch('/api/location/random');
+    const d = await r.json();
+    if (d.error) { alert(d.error); return; }
+    document.getElementById('address-input').value = d.address;
+    document.getElementById('bearing-slider').value = d.bearing;
+    updateBearing();
+    pendingLat = d.lat; pendingLon = d.lon;
+  } catch(e) { alert('Could not get random location.'); }
+  finally { btn.disabled = false; btn.textContent = '🎲'; }
+}
 
-      // Footer
-      document.getElementById('last-updated').textContent = data.last_updated || '—';
-    } catch (e) {
-      document.getElementById('advisory-text').textContent = 'Connection error.';
-      document.getElementById('advisory-text').className = 'error';
-    }
+// ── Geocode typed address ────────────────────────────────────────────────
+async function geocodeAddress(address) {
+  const r = await fetch('/api/location/geocode', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({address})
+  });
+  return await r.json();
+}
+
+// ── Start session ────────────────────────────────────────────────────────
+async function startSession() {
+  const address = document.getElementById('address-input').value.trim();
+  const bearing = parseInt(document.getElementById('bearing-slider').value);
+
+  if (!address) { alert('Please enter or speak an address.'); return; }
+
+  let lat = pendingLat, lon = pendingLon;
+
+  if (!lat || !lon) {
+    const geo = await geocodeAddress(address);
+    if (geo.error) { alert('Could not find that address. Try being more specific.'); return; }
+    lat = geo.lat; lon = geo.lon;
   }
 
-  refresh();
-  setInterval(refresh, {{ poll_interval }} * 1000);
+  const r = await fetch('/api/session/new', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({address, lat, lon, bearing})
+  });
+  const session = await r.json();
+  if (session.error) { alert(session.error); return; }
+
+  activateSession(session);
+}
+
+// ── Activate session (new or resumed) ────────────────────────────────────
+function activateSession(session) {
+  currentSessionId = session.id;
+  pendingLat = null; pendingLon = null;
+
+  document.getElementById('session-addr').textContent    = session.address;
+  document.getElementById('session-heading').textContent = 'Heading ' + bearingLabel(session.bearing);
+  document.getElementById('session-time').textContent    = 'Started ' + fmtTime(session.started_at);
+
+  // Render existing messages (for resumed sessions)
+  const log = document.getElementById('chat-log');
+  log.innerHTML = '';
+  for (const m of (session.messages || [])) {
+    appendMessage(m.role, m.content, m.timestamp, false);
+  }
+  if (!session.messages || session.messages.length === 0) {
+    appendMessage('assistant',
+      'Hello! I\'m ADA, your driving assistant. I\'ve loaded current traffic events for Berkeley. Ask me anything about road conditions near your location.',
+      new Date().toISOString(), false);
+  }
+
+  showSessionView();
+  loadSessions();
+  document.getElementById('question-input').focus();
+}
+
+// ── Resume session ────────────────────────────────────────────────────────
+async function resumeSession(sessionId) {
+  const r = await fetch(`/api/session/${sessionId}/resume`, {method:'POST'});
+  const session = await r.json();
+  if (session.error) { alert(session.error); return; }
+
+  // Load full session to get messages
+  const full = await (await fetch(`/api/session/${session.id}`)).json();
+  activateSession(full);
+}
+
+// ── Q&A ────────────────────────────────────────────────────────────────────
+async function sendQuestion() {
+  const input = document.getElementById('question-input');
+  const question = input.value.trim();
+  if (!question || !currentSessionId) return;
+
+  input.value = '';
+  document.getElementById('send-btn').disabled = true;
+
+  appendMessage('user', question, new Date().toISOString(), true);
+  showTyping();
+
+  try {
+    const r = await fetch('/api/ask', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({session_id: currentSessionId, question})
+    });
+    const d = await r.json();
+    removeTyping();
+    if (d.error) { appendMessage('assistant', 'Error: ' + d.error, new Date().toISOString(), true); }
+    else         { appendMessage('assistant', d.answer, new Date().toISOString(), true); }
+  } catch(e) {
+    removeTyping();
+    appendMessage('assistant', 'Connection error. Please try again.', new Date().toISOString(), true);
+  }
+
+  document.getElementById('send-btn').disabled = false;
+  loadSessions();
+}
+
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendQuestion(); }
+}
+
+// ── Chat rendering ──────────────────────────────────────────────────────────
+function appendMessage(role, content, timestamp, scroll) {
+  const log  = document.getElementById('chat-log');
+  const div  = document.createElement('div');
+  div.className = 'msg ' + role;
+  div.innerHTML = `
+    <div class="bubble">${escHtml(content)}</div>
+    <div class="ts">${timestamp ? fmtTime(timestamp) : ''}</div>`;
+  log.appendChild(div);
+  if (scroll) log.scrollTop = log.scrollHeight;
+}
+
+function showTyping() {
+  const log = document.getElementById('chat-log');
+  const div = document.createElement('div');
+  div.className = 'msg assistant typing-indicator'; div.id = 'typing';
+  div.innerHTML = '<div class="bubble"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>';
+  log.appendChild(div); log.scrollTop = log.scrollHeight;
+}
+function removeTyping() {
+  const t = document.getElementById('typing'); if (t) t.remove();
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+          .replace(/\n/g,'<br>');
+}
+
+// ── Session list ───────────────────────────────────────────────────────────
+async function loadSessions() {
+  const r = await fetch('/api/session/list');
+  const sessions = await r.json();
+  const el = document.getElementById('session-list');
+
+  if (!sessions.length) {
+    el.innerHTML = '<p style="padding:12px;color:var(--muted);font-size:.8rem;">No previous sessions</p>';
+    return;
+  }
+
+  el.innerHTML = sessions.map(s => `
+    <div class="session-item ${s.id === currentSessionId ? 'active-session' : ''}" data-id="${s.id}">
+      <div class="s-addr" title="${s.address}">${s.address}</div>
+      <div class="s-meta">${fmtDate(s.started_at)}</div>
+      <div class="s-meta">Heading ${bearingLabel(s.bearing)}</div>
+      <span class="s-badge">${s.message_count} msg${s.message_count!==1?'s':''}</span>
+      ${s.id !== currentSessionId
+        ? '<span class="s-resume" onclick="resumeSession(\''+s.id+'\');event.stopPropagation()">Resume session</span>'
+        : '<span class="s-badge" style="background:#1a3a5c;color:var(--blue)">Active</span>'}
+    </div>`).join('');
+}
+
+// ── Voice: wake word ────────────────────────────────────────────────────────
+function initWakeWord() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    document.getElementById('wake-status').textContent = 'Voice unavailable (use Chrome/Edge)';
+    return;
+  }
+
+  wakeRecognition = new SR();
+  wakeRecognition.continuous   = true;
+  wakeRecognition.interimResults = true;
+  wakeRecognition.lang = 'en-US';
+
+  wakeRecognition.onstart = () => {
+    document.getElementById('wake-dot').className = 'listening';
+    document.getElementById('wake-status').textContent = 'Listening for "Hey ADA"';
+  };
+  wakeRecognition.onend   = () => { setTimeout(() => wakeRecognition.start(), 500); };
+  wakeRecognition.onerror = () => { setTimeout(() => wakeRecognition.start(), 1000); };
+
+  wakeRecognition.onresult = (e) => {
+    const last = e.results[e.results.length - 1];
+    const transcript = last[0].transcript.toLowerCase().trim();
+
+    if (transcript.includes('hey ada')) {
+      document.getElementById('wake-dot').className = 'active';
+      document.getElementById('wake-status').textContent = 'Activated!';
+
+      if (transcript.includes('start') && transcript.includes('session')) {
+        wakeRecognition.stop();
+        showLocationPanel();
+        startAddressSpeech();
+      } else if (currentSessionId && last.isFinal) {
+        // Strip "hey ada" prefix and treat remainder as a question
+        const question = transcript.replace(/hey ada[,.]?\s*/i, '').trim();
+        if (question.length > 3) {
+          document.getElementById('question-input').value = question;
+          sendQuestion();
+        }
+      }
+    }
+  };
+
+  wakeRecognition.start();
+}
+
+// ── Voice: address input ────────────────────────────────────────────────────
+function startAddressSpeech() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return;
+  if (addressRecognition) { try { addressRecognition.stop(); } catch(e){} }
+
+  const btn = document.getElementById('addr-mic-btn');
+  btn.classList.add('recording'); btn.textContent = '⏹';
+
+  addressRecognition = new SR();
+  addressRecognition.lang = 'en-US';
+
+  addressRecognition.onresult = (e) => {
+    const t = e.results[0][0].transcript;
+    document.getElementById('address-input').value = t;
+    pendingLat = null; pendingLon = null;
+  };
+  addressRecognition.onend = () => {
+    btn.classList.remove('recording'); btn.textContent = '🎤';
+  };
+  addressRecognition.start();
+}
+
+// ── Voice: question input ───────────────────────────────────────────────────
+function startQuestionSpeech() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return;
+  if (questionRecognition) { try { questionRecognition.stop(); } catch(e){} }
+
+  const btn = document.getElementById('question-mic-btn');
+  btn.classList.add('recording'); btn.textContent = '⏹';
+  btn.onclick = () => { questionRecognition.stop(); };
+
+  questionRecognition = new SR();
+  questionRecognition.lang = 'en-US';
+
+  questionRecognition.onresult = (e) => {
+    const t = e.results[0][0].transcript;
+    document.getElementById('question-input').value = t;
+  };
+  questionRecognition.onend = () => {
+    btn.classList.remove('recording'); btn.textContent = '🎤';
+    btn.onclick = startQuestionSpeech;
+    const q = document.getElementById('question-input').value.trim();
+    if (q) sendQuestion();
+  };
+  questionRecognition.start();
+}
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  loadSessions();
+  initWakeWord();
+});
 </script>
 </body>
 </html>
