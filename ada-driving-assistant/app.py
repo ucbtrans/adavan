@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 
 import boto3
 from dotenv import load_dotenv
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, send_from_directory
 
 import sessions as sess
 from assistant import answer_question
@@ -46,6 +46,14 @@ def get_objects() -> list[dict]:
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/ada_logo.jpg")
+def serve_logo():
+    return send_from_directory(
+        os.path.dirname(os.path.abspath(__file__)),
+        "ada_logo.jpg", mimetype="image/jpeg"
+    )
 
 
 # -- Location -----------------------------------------------------------------
@@ -88,9 +96,15 @@ def api_session_new():
     if not address or lat is None or lon is None:
         return jsonify({"error": "address, lat, and lon are required"}), 400
 
-    from location import bearing_to_direction, reverse_geocode
+    from location import bearing_to_direction
     bearing_dir = bearing_to_direction(bearing)
     street      = data.get("street", "")
+
+    # Deduplicate: reuse an existing session with the same address + bearing
+    existing = sess.find_session(address, bearing)
+    if existing:
+        sess.touch_session(existing["id"])
+        return jsonify(sess.get_session(existing["id"]))
 
     session = sess.create_session(address, float(lat), float(lon),
                                   bearing, bearing_dir, street)
@@ -107,23 +121,13 @@ def api_session_get(session_id):
 
 @app.route("/api/session/<session_id>/resume", methods=["POST"])
 def api_session_resume(session_id):
-    """
-    Resume a previous session: copy location from old session into a new one.
-    A new session ID is created so history starts fresh, but location is reused.
-    """
-    old = sess.get_session(session_id)
-    if not old:
+    """Resume a previous session, updating its last_active_at timestamp."""
+    session = sess.get_session(session_id)
+    if not session:
         return jsonify({"error": "Session not found"}), 404
-
-    new_session = sess.create_session(
-        address           = old["address"],
-        lat               = old["lat"],
-        lon               = old["lon"],
-        bearing           = old["bearing"],
-        bearing_direction = old["bearing_direction"],
-        street            = old.get("street", ""),
-    )
-    return jsonify(new_session)
+    sess.touch_session(session_id)
+    session = sess.get_session(session_id)   # reload with updated timestamp
+    return jsonify(session)
 
 
 # -- Q&A ----------------------------------------------------------------------
@@ -160,6 +164,43 @@ def api_ask():
 
     return jsonify({"answer": answer, "nearby_count": len(nearby)})
 
+
+# ── Lambda entry point (aws-wsgi bridges Flask WSGI → API Gateway) ───────────
+try:
+    import awsgi
+
+    def _normalise_event(event: dict) -> dict:
+        """Convert HTTP API v2 event to REST API v1 format that aws-wsgi expects."""
+        if "httpMethod" in event:
+            return event  # already v1
+        rc    = event.get("requestContext", {})
+        http  = rc.get("http", {})
+        stage = rc.get("stage", "")
+        qs    = event.get("rawQueryString", "")
+        # HTTP API v2 includes the stage in rawPath — strip it so Flask routes match
+        path  = http.get("path", "/")
+        if stage and stage != "$default" and path.startswith(f"/{stage}"):
+            path = path[len(f"/{stage}"):] or "/"
+        return {
+            "httpMethod":            http.get("method", "GET"),
+            "path":                  path,
+            "queryStringParameters": (
+                dict(p.split("=", 1) if "=" in p else (p, "")
+                     for p in qs.split("&") if p) or None
+            ),
+            "headers":               event.get("headers", {}),
+            "body":                  event.get("body"),
+            "isBase64Encoded":       event.get("isBase64Encoded", False),
+        }
+
+    def handler(event, context):
+        return awsgi.response(
+            app, _normalise_event(event), context,
+            base64_content_types={"image/jpeg"},
+        )
+
+except ImportError:
+    pass  # aws-wsgi not installed in local dev; Flask runs directly
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5001)

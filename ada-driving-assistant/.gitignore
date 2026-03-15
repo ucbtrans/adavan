@@ -1,0 +1,23 @@
+# Secrets & local config
+.env
+sessions.json
+
+# Build artifacts
+lambda.zip
+package/
+.aws-build/
+.aws-packaged.yaml
+.aws-template-build.yaml
+samconfig.toml
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Editor / OS
+.claude/
+.DS_Store
+Thumbs.db

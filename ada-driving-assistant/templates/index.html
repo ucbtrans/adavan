@@ -71,7 +71,6 @@ header h1 span { color: var(--muted); font-weight: 400; font-size: 0.9rem; margi
 aside {
   width: 260px;
   flex-shrink: 0;
-  border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   background: var(--surface);
@@ -263,13 +262,60 @@ aside h2 {
 .btn-icon     { padding: 9px 12px; font-size: 1rem; }
 .btn-mic      { background: var(--surface); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 9px 12px; cursor: pointer; font-size: 1rem; transition: background .15s, border-color .15s; }
 .btn-mic.recording { background: #3d1a1a; border-color: var(--red); color: var(--red); animation: pulse .8s infinite; }
+
+/* ── Map panels ──────────────────────────────────────────────── */
+.leaflet-container { background: #1a1f27; }
+.leaflet-tile-pane { filter: brightness(0.85) saturate(0.9); }
+
+#session-view { flex-direction: row; }
+
+#session-map-panel {
+  width: 700px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+}
+#session-map { flex: 1; min-height: 0; }
+
+#session-chat-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+#location-preview-map {
+  display: none;
+  width: 100%;
+  height: 200px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+/* ── Resize handles ──────────────────────────────────────────── */
+.resize-handle {
+  width: 5px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: var(--border);
+  transition: background 0.15s;
+  z-index: 10;
+}
+.resize-handle:hover, .resize-handle.dragging { background: var(--blue); }
 </style>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js" defer></script>
 </head>
 <body>
 
 <!-- ── Header ─────────────────────────────────────── -->
 <header>
-  <h1>ADA <span>Driving Assistant</span></h1>
+  <div style="display:flex;align-items:center;gap:10px;">
+    <img src="/ada_logo.jpg" style="height:40px;border-radius:6px;display:block;" alt="ADA Logo"/>
+    <h1>ADA <span>Driving Assistant</span></h1>
+  </div>
   <div id="wake-indicator">
     <div id="wake-dot"></div>
     <span id="wake-status">Say "Hey ADA" to start</span>
@@ -283,6 +329,8 @@ aside h2 {
     <h2>Previous Sessions</h2>
     <div id="session-list"><p style="padding:12px;color:var(--muted);font-size:.8rem;">No previous sessions</p></div>
   </aside>
+
+  <div class="resize-handle" id="sidebar-resize"></div>
 
   <!-- ── Main content ───────────────────────────── -->
   <div class="content">
@@ -300,16 +348,23 @@ aside h2 {
       <h2>Where are you?</h2>
 
       <div class="loc-input-row">
-        <input id="address-input" type="text" placeholder="Enter address (e.g. 2400 Telegraph Ave)" autocomplete="off"/>
+        <input id="address-input" type="text" placeholder="Enter address (e.g. 2400 Telegraph Ave)" autocomplete="off" oninput="onManualAddressInput()"/>
         <button class="btn btn-mic" id="addr-mic-btn" title="Speak address" onclick="startAddressSpeech()">🎤</button>
         <button class="btn btn-secondary" onclick="suggestRandom()" title="Suggest random location">🎲</button>
       </div>
 
-      <div class="bearing-row">
+      <!-- Heading: slider (manual), auto badge (one-way), or direction buttons (two-way) -->
+      <div id="heading-slider-row" class="bearing-row">
         <label>Heading:</label>
         <input type="range" id="bearing-slider" min="0" max="359" value="0" oninput="updateBearing()"/>
         <span id="bearing-display">N (0°)</span>
       </div>
+      <div id="heading-auto-row" style="display:none;width:100%;">
+        <span id="heading-auto-badge" style="display:inline-block;padding:6px 12px;border-radius:8px;background:#0e3a1a;border:1px solid var(--green);color:var(--green);font-size:.85rem;"></span>
+      </div>
+      <div id="heading-options-row" style="display:none;gap:10px;width:100%;"></div>
+
+      <div id="location-preview-map"></div>
 
       <div style="display:flex;gap:10px;width:100%;">
         <button class="btn btn-primary" style="flex:1" onclick="startSession()">Start Session</button>
@@ -319,32 +374,114 @@ aside h2 {
 
     <!-- Active session view -->
     <div id="session-view">
-      <div class="location-bar">
-        <div class="dot"></div>
-        <span class="addr" id="session-addr">—</span>
-        <span class="meta" id="session-heading">—</span>
-        <span class="meta" id="session-time" style="margin-left:auto;"></span>
+
+      <!-- Left: map panel -->
+      <div id="session-map-panel">
+        <div id="session-map"></div>
       </div>
 
-      <div id="chat-log"></div>
+      <div class="resize-handle" id="map-resize"></div>
 
-      <div class="input-bar">
-        <textarea id="question-input" placeholder="Ask ADA about road conditions…" onkeydown="handleKey(event)"></textarea>
-        <button class="btn btn-mic" id="question-mic-btn" onclick="startQuestionSpeech()" title="Speak question">🎤</button>
-        <button class="btn btn-primary" id="send-btn" onclick="sendQuestion()">Send</button>
+      <!-- Right: chat panel -->
+      <div id="session-chat-panel">
+        <div class="location-bar">
+          <div class="dot"></div>
+          <span class="addr" id="session-addr">—</span>
+          <span class="meta" id="session-heading">—</span>
+          <span class="meta" id="session-time" style="margin-left:auto;"></span>
+          <button class="btn btn-ghost" style="margin-left:12px;font-size:.8rem;padding:5px 12px;" onclick="endSession()">End Session</button>
+        </div>
+
+        <div id="chat-log"></div>
+
+        <div class="input-bar">
+          <textarea id="question-input" placeholder="Ask ADA about road conditions…" onkeydown="handleKey(event)"></textarea>
+          <button class="btn btn-mic" id="question-mic-btn" onclick="startQuestionSpeech()" title="Speak question">🎤</button>
+          <button class="btn btn-primary" id="send-btn" onclick="sendQuestion()">Send</button>
+        </div>
       </div>
+
     </div>
 
   </div><!-- /content -->
 </div><!-- /main -->
 
 <script>
+// ── API base URL (empty = relative for local dev; injected at S3 deploy time)
+const API_BASE = window.ADA_API_BASE || '';
+
 // ── State ──────────────────────────────────────────────────────────────
 let currentSessionId = null;
 let pendingLat = null, pendingLon = null;
+let pendingBearing = null;
 let wakeRecognition = null;
 let questionRecognition = null;
 let addressRecognition = null;
+
+// ── Chat localStorage ────────────────────────────────────────────────────
+const CHAT_KEY = id => 'ada_chat_' + id;
+
+function saveChatLocal(sessionId, messages) {
+  try { localStorage.setItem(CHAT_KEY(sessionId), JSON.stringify(messages)); } catch(e) {}
+}
+function loadChatLocal(sessionId) {
+  try { const d = localStorage.getItem(CHAT_KEY(sessionId)); return d ? JSON.parse(d) : null; }
+  catch(e) { return null; }
+}
+function clearChatLocal(sessionId) {
+  try { localStorage.removeItem(CHAT_KEY(sessionId)); } catch(e) {}
+}
+
+// In-memory mirror of the current session's messages (for localStorage sync)
+let currentMessages = [];
+
+// ── Map state ────────────────────────────────────────────────────────────
+let sessionMap    = null;
+let sessionMarker = null;
+let previewMap    = null;
+let previewMarker = null;
+
+// ── Map helpers ──────────────────────────────────────────────────────────
+function makeHeadingIcon(bearing) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">
+    <circle cx="18" cy="18" r="16" fill="#1a3a5c" stroke="#58a6ff" stroke-width="2.5"/>
+    <polygon points="18,5 24,26 18,21 12,26" fill="#58a6ff"
+      transform="rotate(${bearing},18,18)"/>
+  </svg>`;
+  return L.divIcon({ html: svg, iconSize: [36,36], iconAnchor: [18,18], className: '' });
+}
+
+function initSessionMap(lat, lon, bearing) {
+  if (sessionMap) { sessionMap.remove(); sessionMap = null; sessionMarker = null; }
+  sessionMap = L.map('session-map', { center: [lat, lon], zoom: 16 });
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+  }).addTo(sessionMap);
+  sessionMarker = L.marker([lat, lon], { icon: makeHeadingIcon(bearing) }).addTo(sessionMap);
+  setTimeout(() => sessionMap.invalidateSize(), 100);
+}
+
+function updateLocationPreview(lat, lon, bearing) {
+  const el = document.getElementById('location-preview-map');
+  el.style.display = 'block';
+  if (!previewMap) {
+    previewMap = L.map('location-preview-map', {
+      center: [lat, lon], zoom: 15,
+      zoomControl: false, attributionControl: false,
+      dragging: false, scrollWheelZoom: false,
+      doubleClickZoom: false, touchZoom: false
+    });
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 })
+      .addTo(previewMap);
+    previewMarker = L.marker([lat, lon], { icon: makeHeadingIcon(bearing) }).addTo(previewMap);
+  } else {
+    previewMap.setView([lat, lon], 15);
+    previewMarker.setLatLng([lat, lon]);
+    previewMarker.setIcon(makeHeadingIcon(bearing));
+  }
+  setTimeout(() => previewMap.invalidateSize(), 100);
+}
 
 const DIRS = ["N","NE","E","SE","S","SW","W","NW"];
 function bearingLabel(b) {
@@ -360,7 +497,10 @@ function fmtDate(iso) {
 
 // ── Panel navigation ────────────────────────────────────────────────────
 function showSplash()         { hide('location-panel'); hide('session-view'); show('splash'); }
-function showLocationPanel()  { hide('splash'); hide('session-view'); show('location-panel'); }
+function showLocationPanel()  {
+  hide('splash'); hide('session-view'); show('location-panel');
+  document.getElementById('location-preview-map').style.display = 'none';
+}
 function showSessionView()    { hide('splash'); hide('location-panel'); show('session-view'); }
 function show(id) { document.getElementById(id).style.display = 'flex'; }
 function hide(id) { document.getElementById(id).style.display = 'none'; }
@@ -369,27 +509,95 @@ function hide(id) { document.getElementById(id).style.display = 'none'; }
 function updateBearing() {
   const b = parseInt(document.getElementById('bearing-slider').value);
   document.getElementById('bearing-display').textContent = bearingLabel(b);
+  pendingBearing = b;
+}
+
+// ── Heading UI helpers ──────────────────────────────────────────────────
+function showHeadingSlider() {
+  document.getElementById('heading-slider-row').style.display = 'flex';
+  document.getElementById('heading-auto-row').style.display   = 'none';
+  document.getElementById('heading-options-row').style.display = 'none';
+  pendingBearing = null;
+}
+
+function showHeadingAuto(bearing, dir, reason) {
+  document.getElementById('heading-slider-row').style.display  = 'none';
+  document.getElementById('heading-auto-row').style.display    = 'block';
+  document.getElementById('heading-options-row').style.display = 'none';
+  document.getElementById('heading-auto-badge').textContent =
+    `Auto: ${dir} (${bearing}°) — ${reason}`;
+  pendingBearing = bearing;
+}
+
+function showHeadingOptions(options) {
+  document.getElementById('heading-slider-row').style.display   = 'none';
+  document.getElementById('heading-auto-row').style.display     = 'none';
+  const row = document.getElementById('heading-options-row');
+  row.style.display = 'flex';
+  row.innerHTML = options.map(o =>
+    `<button class="btn btn-secondary" style="flex:1"
+       onclick="selectHeadingOption(${o.bearing}, this)">
+       Head ${o.direction} (${o.bearing}°)
+     </button>`
+  ).join('');
+  // Pre-select first option
+  if (options.length) {
+    pendingBearing = options[0].bearing;
+    row.querySelector('button').style.borderColor = 'var(--blue)';
+    row.querySelector('button').style.color = 'var(--blue)';
+  }
+}
+
+function selectHeadingOption(bearing, btn) {
+  pendingBearing = bearing;
+  const row = document.getElementById('heading-options-row');
+  row.querySelectorAll('button').forEach(b => {
+    b.style.borderColor = ''; b.style.color = '';
+  });
+  btn.style.borderColor = 'var(--blue)';
+  btn.style.color = 'var(--blue)';
+}
+
+function onManualAddressInput() {
+  pendingLat = null; pendingLon = null; pendingBearing = null;
+  showHeadingSlider();
 }
 
 // ── Random location ──────────────────────────────────────────────────────
 async function suggestRandom() {
   const btn = document.querySelector('[onclick="suggestRandom()"]');
   btn.disabled = true; btn.textContent = '…';
+  let locationData = null;
   try {
-    const r = await fetch('/api/location/random');
+    const r = await fetch(API_BASE + '/api/location/random');
     const d = await r.json();
-    if (d.error) { alert(d.error); return; }
+    if (d.error) { alert('Server error: ' + d.error); return; }
     document.getElementById('address-input').value = d.address;
-    document.getElementById('bearing-slider').value = d.bearing;
-    updateBearing();
     pendingLat = d.lat; pendingLon = d.lon;
-  } catch(e) { alert('Could not get random location.'); }
+    if (d.heading_auto) {
+      showHeadingAuto(d.bearing, d.bearing_direction, 'one-way street');
+    } else if (d.heading_options) {
+      showHeadingOptions(d.heading_options);
+    } else {
+      document.getElementById('bearing-slider').value = d.bearing;
+      updateBearing();
+    }
+    locationData = d;
+  } catch(e) { alert('Could not get random location: ' + e.message); }
   finally { btn.disabled = false; btn.textContent = '🎲'; }
+
+  // Map preview is separate — errors here don't block location loading
+  if (locationData) {
+    try {
+      updateLocationPreview(locationData.lat, locationData.lon,
+        pendingBearing !== null ? pendingBearing : locationData.bearing);
+    } catch(e) { console.warn('Map preview error:', e); }
+  }
 }
 
 // ── Geocode typed address ────────────────────────────────────────────────
 async function geocodeAddress(address) {
-  const r = await fetch('/api/location/geocode', {
+  const r = await fetch(API_BASE + '/api/location/geocode', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({address})
@@ -400,7 +608,9 @@ async function geocodeAddress(address) {
 // ── Start session ────────────────────────────────────────────────────────
 async function startSession() {
   const address = document.getElementById('address-input').value.trim();
-  const bearing = parseInt(document.getElementById('bearing-slider').value);
+  const bearing = pendingBearing !== null
+    ? pendingBearing
+    : parseInt(document.getElementById('bearing-slider').value);
 
   if (!address) { alert('Please enter or speak an address.'); return; }
 
@@ -412,7 +622,7 @@ async function startSession() {
     lat = geo.lat; lon = geo.lon;
   }
 
-  const r = await fetch('/api/session/new', {
+  const r = await fetch(API_BASE + '/api/session/new', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({address, lat, lon, bearing})
@@ -426,38 +636,56 @@ async function startSession() {
 // ── Activate session (new or resumed) ────────────────────────────────────
 function activateSession(session) {
   currentSessionId = session.id;
-  pendingLat = null; pendingLon = null;
+  currentMessages  = [];
+  pendingLat = null; pendingLon = null; pendingBearing = null;
+  showHeadingSlider();
 
   document.getElementById('session-addr').textContent    = session.address;
   document.getElementById('session-heading').textContent = 'Heading ' + bearingLabel(session.bearing);
   document.getElementById('session-time').textContent    = 'Started ' + fmtTime(session.started_at);
 
-  // Render existing messages (for resumed sessions)
+  // Prefer localStorage (most up-to-date), fall back to server messages
+  const localMsgs  = loadChatLocal(session.id);
+  const serverMsgs = session.messages || [];
+  const messages   = (localMsgs && localMsgs.length >= serverMsgs.length) ? localMsgs : serverMsgs;
+
   const log = document.getElementById('chat-log');
   log.innerHTML = '';
-  for (const m of (session.messages || [])) {
-    appendMessage(m.role, m.content, m.timestamp, false);
-  }
-  if (!session.messages || session.messages.length === 0) {
-    appendMessage('assistant',
-      'Hello! I\'m ADA, your driving assistant. I\'ve loaded current traffic events for Berkeley. Ask me anything about road conditions near your location.',
-      new Date().toISOString(), false);
+
+  if (messages.length === 0) {
+    const welcomeTs  = new Date().toISOString();
+    const welcomeMsg = 'Hello! I\'m ADA, your driving assistant. I\'ve loaded current traffic events for Berkeley. Ask me anything about road conditions near your location.';
+    appendMessage('assistant', welcomeMsg, welcomeTs, false);
+    currentMessages.push({ role: 'assistant', content: welcomeMsg, timestamp: welcomeTs });
+    saveChatLocal(session.id, currentMessages);
+  } else {
+    for (const m of messages) {
+      appendMessage(m.role, m.content, m.timestamp, false);
+      currentMessages.push(m);
+    }
   }
 
   showSessionView();
+  try { initSessionMap(session.lat, session.lon, session.bearing); }
+  catch(e) { console.error('Map init failed:', e); }
   loadSessions();
   document.getElementById('question-input').focus();
 }
 
+// ── End session ───────────────────────────────────────────────────────────
+function endSession() {
+  currentSessionId = null;
+  if (sessionMap) { sessionMap.remove(); sessionMap = null; sessionMarker = null; }
+  showSplash();
+  loadSessions();
+}
+
 // ── Resume session ────────────────────────────────────────────────────────
 async function resumeSession(sessionId) {
-  const r = await fetch(`/api/session/${sessionId}/resume`, {method:'POST'});
+  const r = await fetch(API_BASE + `/api/session/${sessionId}/resume`, {method:'POST'});
   const session = await r.json();
   if (session.error) { alert(session.error); return; }
-
-  // Load full session to get messages
-  const full = await (await fetch(`/api/session/${session.id}`)).json();
-  activateSession(full);
+  activateSession(session);
 }
 
 // ── Q&A ────────────────────────────────────────────────────────────────────
@@ -469,19 +697,24 @@ async function sendQuestion() {
   input.value = '';
   document.getElementById('send-btn').disabled = true;
 
-  appendMessage('user', question, new Date().toISOString(), true);
+  const userTs = new Date().toISOString();
+  appendMessage('user', question, userTs, true);
+  currentMessages.push({ role: 'user', content: question, timestamp: userTs });
   showTyping();
 
   try {
-    const r = await fetch('/api/ask', {
+    const r = await fetch(API_BASE + '/api/ask', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({session_id: currentSessionId, question})
     });
     const d = await r.json();
     removeTyping();
-    if (d.error) { appendMessage('assistant', 'Error: ' + d.error, new Date().toISOString(), true); }
-    else         { appendMessage('assistant', d.answer, new Date().toISOString(), true); }
+    const replyTs = new Date().toISOString();
+    const reply   = d.error ? 'Error: ' + d.error : d.answer;
+    appendMessage('assistant', reply, replyTs, true);
+    currentMessages.push({ role: 'assistant', content: reply, timestamp: replyTs });
+    saveChatLocal(currentSessionId, currentMessages);
   } catch(e) {
     removeTyping();
     appendMessage('assistant', 'Connection error. Please try again.', new Date().toISOString(), true);
@@ -525,7 +758,7 @@ function escHtml(s) {
 
 // ── Session list ───────────────────────────────────────────────────────────
 async function loadSessions() {
-  const r = await fetch('/api/session/list');
+  const r = await fetch(API_BASE + '/api/session/list');
   const sessions = await r.json();
   const el = document.getElementById('session-list');
 
@@ -537,7 +770,10 @@ async function loadSessions() {
   el.innerHTML = sessions.map(s => `
     <div class="session-item ${s.id === currentSessionId ? 'active-session' : ''}" data-id="${s.id}">
       <div class="s-addr" title="${s.address}">${s.address}</div>
-      <div class="s-meta">${fmtDate(s.started_at)}</div>
+      <div class="s-meta">Started: ${fmtDate(s.started_at)}</div>
+      ${s.last_active_at !== s.started_at
+        ? `<div class="s-meta">Resumed: ${fmtDate(s.last_active_at)}</div>`
+        : ''}
       <div class="s-meta">Heading ${bearingLabel(s.bearing)}</div>
       <span class="s-badge">${s.message_count} msg${s.message_count!==1?'s':''}</span>
       ${s.id !== currentSessionId
@@ -563,8 +799,13 @@ function initWakeWord() {
     document.getElementById('wake-dot').className = 'listening';
     document.getElementById('wake-status').textContent = 'Listening for "Hey ADA"';
   };
-  wakeRecognition.onend   = () => { setTimeout(() => wakeRecognition.start(), 500); };
-  wakeRecognition.onerror = () => { setTimeout(() => wakeRecognition.start(), 1000); };
+  function safeStartWake() {
+    try { wakeRecognition.start(); } catch(e) {
+      document.getElementById('wake-status').textContent = 'Voice unavailable';
+    }
+  }
+  wakeRecognition.onend   = () => { setTimeout(safeStartWake, 500); };
+  wakeRecognition.onerror = () => { setTimeout(safeStartWake, 1000); };
 
   wakeRecognition.onresult = (e) => {
     const last = e.results[e.results.length - 1];
@@ -589,7 +830,7 @@ function initWakeWord() {
     }
   };
 
-  wakeRecognition.start();
+  safeStartWake();
 }
 
 // ── Voice: address input ────────────────────────────────────────────────────
@@ -641,10 +882,44 @@ function startQuestionSpeech() {
   questionRecognition.start();
 }
 
+// ── Column resize ─────────────────────────────────────────────────────────────
+function initResizeHandle(handleId, targetEl, minW, maxW, onResize) {
+  const handle = document.getElementById(handleId);
+  handle.addEventListener('mousedown', e => {
+    e.preventDefault();
+    handle.classList.add('dragging');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    const startX = e.clientX;
+    const startW = targetEl.offsetWidth;
+
+    function onMove(e) {
+      const w = Math.min(maxW, Math.max(minW, startW + e.clientX - startX));
+      targetEl.style.width = w + 'px';
+      targetEl.style.flex  = 'none';
+      if (onResize) onResize();
+    }
+    function onUp() {
+      handle.classList.remove('dragging');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+}
+
 // ── Init ─────────────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', () => {
-  loadSessions();
-  initWakeWord();
+  loadSessions().catch(e => console.error('loadSessions failed:', e));
+  try { initWakeWord(); } catch(e) { console.error('initWakeWord failed:', e); }
+  try {
+    initResizeHandle('sidebar-resize', document.querySelector('aside'), 150, 420);
+    initResizeHandle('map-resize', document.getElementById('session-map-panel'), 200, 1100,
+      () => { if (sessionMap) sessionMap.invalidateSize(); });
+  } catch(e) { console.error('resize handles failed:', e); }
 });
 </script>
 </body>

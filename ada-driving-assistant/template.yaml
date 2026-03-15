@@ -1,0 +1,180 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: ADA Driving Assistant — API Lambda + simulation scheduler
+
+Parameters:
+  AnthropicApiKey:
+    Type: String
+    NoEcho: true
+    Description: Anthropic API key (stored in Parameter Store after first deploy)
+  DataBucketName:
+    Type: String
+    Default: ada-driving-assistant
+    Description: Existing S3 bucket holding city_streets.json and city_objects.json
+  Stage:
+    Type: String
+    Default: prod
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 30
+    MemorySize: 512
+    Environment:
+      Variables:
+        S3_BUCKET:        !Ref DataBucketName
+        OBJECTS_KEY:      CA/Berkeley/city_objects.json
+        STREETS_KEY:      CA/Berkeley/city_streets.json
+        SESSIONS_TABLE:   !Ref SessionsTable
+        ANTHROPIC_API_KEY: !Ref AnthropicApiKey
+
+Resources:
+
+  # ── HTTP API Gateway ────────────────────────────────────────────────────────
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: !Ref Stage
+      CorsConfiguration:
+        AllowOrigins:
+          - "*"
+        AllowMethods:
+          - GET
+          - POST
+          - OPTIONS
+        AllowHeaders:
+          - Content-Type
+
+  # ── API Lambda (Flask + Mangum) ─────────────────────────────────────────────
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: ada-api
+      CodeUri: .
+      Handler: app.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SessionsTable
+        - S3ReadPolicy:
+            BucketName: !Ref DataBucketName
+      Events:
+        ApiProxy:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /{proxy+}
+            Method: ANY
+        ApiRoot:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /
+            Method: GET
+
+  # ── Simulation Lambda (daily EventBridge cron) ──────────────────────────────
+  SimulationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: ada-simulation
+      CodeUri: .
+      Handler: lambda_function.handler
+      Timeout: 120
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref DataBucketName
+      Events:
+        DailySchedule:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 6 * * ? *)
+            Name: ada-daily-simulation
+            Description: Generate daily Berkeley traffic events
+
+  # ── DynamoDB sessions table ─────────────────────────────────────────────────
+  SessionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: ada-sessions
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  # ── Web S3 bucket (static site: index.html + logo) ──────────────────────────
+  WebBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ada-driving-assistant-web-${AWS::AccountId}
+      WebsiteConfiguration:
+        IndexDocument: index.html
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls:       false
+        BlockPublicPolicy:     false
+        IgnorePublicAcls:      false
+        RestrictPublicBuckets: false
+
+  WebBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal: "*"
+            Action: s3:GetObject
+            Resource: !Sub ${WebBucket.Arn}/*
+
+  # ── CloudFront distribution (HTTPS for the web bucket) ──────────────────────
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        HttpVersion: http2
+        DefaultRootObject: index.html
+        PriceClass: PriceClass_100   # US + Europe edge locations
+        Origins:
+          - Id: S3WebsiteOrigin
+            # Use the S3 website endpoint (supports index.html redirect)
+            DomainName: !Sub ${WebBucket}.s3-website-${AWS::Region}.amazonaws.com
+            CustomOriginConfig:
+              HTTPPort: 80
+              OriginProtocolPolicy: http-only
+        DefaultCacheBehavior:
+          TargetOriginId: S3WebsiteOrigin
+          ViewerProtocolPolicy: redirect-to-https
+          # Managed-CachingDisabled: always fetch fresh from origin
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+          AllowedMethods:  [GET, HEAD]
+          CachedMethods:   [GET, HEAD]
+
+Outputs:
+  ApiUrl:
+    Description: API Gateway endpoint URL
+    Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}
+    Export:
+      Name: ADAApiUrl
+
+  WebsiteUrl:
+    Description: S3 static website URL
+    Value: !GetAtt WebBucket.WebsiteURL
+    Export:
+      Name: ADAWebsiteUrl
+
+  CloudFrontUrl:
+    Description: HTTPS CloudFront URL (use this to access the app)
+    Value: !Sub https://${CloudFrontDistribution.DomainName}
+    Export:
+      Name: ADACloudFrontUrl
+
+  WebBucketName:
+    Description: Web S3 bucket name
+    Value: !Ref WebBucket
+    Export:
+      Name: ADAWebBucket

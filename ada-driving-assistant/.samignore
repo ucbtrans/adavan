@@ -1,0 +1,10 @@
+.env
+sessions.json
+__pycache__/
+*.pyc
+.aws-sam/
+static/
+*.md
+deploy.sh
+fetch_streets.py
+simulator.py
