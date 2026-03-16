@@ -169,8 +169,9 @@ def api_ask():
 # -- Consumption ---------------------------------------------------------------
 
 _LAMBDA_FUNCTIONS = [
-    {"name": "ada-api",        "memory_mb": 512},
-    {"name": "ada-simulation", "memory_mb": 512},
+    {"name": "ada-api",                       "memory_mb": 512},
+    {"name": "ada-simulation",                "memory_mb": 512},
+    {"name": "ada-driving-assistant-simulator","memory_mb": 256},
 ]
 
 
