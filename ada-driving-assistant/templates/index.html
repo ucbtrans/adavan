@@ -587,8 +587,25 @@ const AI_PRICE_OUT = 4.00  / 1_000_000;
 const LAMBDA_GB_SEC_PRICE = 0.0000166667;   // per GB-second
 const LAMBDA_REQ_PRICE    = 0.20 / 1_000_000; // per request
 
-// ── Chat localStorage ────────────────────────────────────────────────────
-const CHAT_KEY = id => 'ada_chat_' + id;
+// ── localStorage helpers ─────────────────────────────────────────────────
+const CHAT_KEY  = id => 'ada_chat_'  + id;
+const USAGE_KEY = id => 'ada_usage_' + id;
+
+function saveAiUsageLocal(sessionId) {
+  try {
+    localStorage.setItem(USAGE_KEY(sessionId), JSON.stringify({
+      calls:         sessionAiCalls,
+      input_tokens:  sessionInputTokens,
+      output_tokens: sessionOutputTokens,
+    }));
+  } catch(e) {}
+}
+function loadAiUsageLocal(sessionId) {
+  try {
+    const d = localStorage.getItem(USAGE_KEY(sessionId));
+    return d ? JSON.parse(d) : null;
+  } catch(e) { return null; }
+}
 
 function saveChatLocal(sessionId, messages) {
   try { localStorage.setItem(CHAT_KEY(sessionId), JSON.stringify(messages)); } catch(e) {}
@@ -807,9 +824,10 @@ function activateSession(session) {
   currentSessionId      = session.id;
   currentMessages       = [];
   lastSources           = [];
-  sessionAiCalls        = 0;
-  sessionInputTokens    = 0;
-  sessionOutputTokens   = 0;
+  const storedUsage     = loadAiUsageLocal(session.id);
+  sessionAiCalls        = storedUsage?.calls         || 0;
+  sessionInputTokens    = storedUsage?.input_tokens  || 0;
+  sessionOutputTokens   = storedUsage?.output_tokens || 0;
   sessionStartedAt      = session.started_at || new Date().toISOString();
   pendingLat = null; pendingLon = null; pendingBearing = null;
   showHeadingSlider();
@@ -945,6 +963,7 @@ async function sendQuestion() {
       sessionAiCalls++;
       sessionInputTokens  += d.usage.input_tokens  || 0;
       sessionOutputTokens += d.usage.output_tokens || 0;
+      saveAiUsageLocal(currentSessionId);
     }
     saveChatLocal(currentSessionId, currentMessages);
   } catch(e) {
