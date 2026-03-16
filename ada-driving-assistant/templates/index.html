@@ -1176,6 +1176,7 @@ function fmtN(v) {
 }
 function fmtMs(v) {
   if (v == null) return '<span class="td-na">N/A</span>';
+  if (v >= 1000) return (v / 1000).toFixed(2) + ' s';
   return Math.round(v).toLocaleString() + ' ms';
 }
 function fmtGb(v, memMb) {
