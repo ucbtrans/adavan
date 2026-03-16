@@ -1294,13 +1294,20 @@ function buildAwsTable(data) {
   const cols      = ['session', '24h', '7d', '30d'];
   const colLabels = ['Current Session', 'Last 24 Hours', 'Last 7 Days', 'Last 30 Days'];
 
-  // Row definition per function
+  // Row definition per function.
+  // NOTE: BilledDuration is NOT a CloudWatch metric — it only appears in Lambda
+  // execution logs (REPORT lines) and requires Logs Insights to extract.
+  // Duration = handler execution time only (excludes cold-start init duration).
+  // GB·sec and cost are therefore slight underestimates on cold-start invocations.
   const rowDefs = [
-    { label: 'Invocations',          metric: 'Invocations', fmt: (v)       => fmtN(v) },
-    { label: 'Duration (ms)',         metric: 'Duration',    fmt: (v)       => fmtMs(v) },
-    { label: 'Billed Duration (ms)',  metric: 'Duration',    fmt: (v)       => fmtMs(v) },
-    { label: 'Billed (GB·sec)',       metric: 'Duration',    fmt: (v, mem)  => fmtGb(v, mem) },
-    { label: 'Est. Lambda Cost',      metric: null,          cost: true,
+    { label: 'Invocations',       metric: 'Invocations', fmt: (v)      => fmtN(v) },
+    { label: 'Duration (ms)',      metric: 'Duration',    fmt: (v)      => fmtMs(v) },
+    { label: 'Billed Duration (ms)', metric: null, fmt: () =>
+        '<span class="td-na" title="Not available as a CloudWatch metric — ' +
+        'only in Lambda logs (REPORT line). Excludes cold-start init time.">N/A *</span>' },
+    { label: 'Billed (GB·sec)',    metric: 'Duration',    fmt: (v, mem) => fmtGb(v, mem) },
+    { label: 'Errors',             metric: 'Errors',      fmt: (v)      => fmtN(v) },
+    { label: 'Est. Lambda Cost',   metric: null,          cost: true,
       fmt: (pdata, mem) => {
         const inv = pdata?.Invocations;
         const dur = pdata?.Duration;
@@ -1328,6 +1335,8 @@ function buildAwsTable(data) {
         let val;
         if (isCost) {
           val = row.fmt(pdata, mem);
+        } else if (row.metric === null) {
+          val = row.fmt();   // fixed display (e.g. N/A *)
         } else {
           const raw = pdata?.[row.metric];
           val = (row.metric === 'Duration' && row.label.includes('GB'))
@@ -1348,8 +1357,10 @@ function buildAwsTable(data) {
   html += `</tbody></table>
     <p class="consumption-note">
       Lambda pricing (us-west-1): $0.0000166667/GB·sec + $0.20/1M requests &nbsp;·&nbsp;
-      Billed Duration ≈ Duration (billed to nearest 1ms since 2020) &nbsp;·&nbsp;
-      Metrics via CloudWatch; "Current Session" uses session start time.
+      * Billed Duration is not a CloudWatch metric — it lives only in Lambda execution logs
+      (REPORT line) and requires CloudWatch Logs Insights to extract. It equals Duration +
+      cold-start init time (typically 200–2000 ms on first invocation). GB·sec and cost
+      are computed from Duration and are therefore a slight underestimate on cold starts.
     </p>`;
   return html;
 }
