@@ -572,7 +572,8 @@ let pendingBearing = null;
 let wakeRecognition = null;
 let questionRecognition = null;
 let addressRecognition = null;
-let lastSources = [];   // raw nearby objects from the most recent /api/ask response
+let lastSources = [];          // raw nearby objects from the most recent /api/ask response
+let sessionCurrentTag = null;  // address tag for the active session
 
 // ── AI consumption tracking (current session only) ──────────────────────────
 let sessionAiCalls        = 0;
@@ -590,6 +591,7 @@ const LAMBDA_REQ_PRICE    = 0.20 / 1_000_000; // per request
 // ── localStorage helpers ─────────────────────────────────────────────────
 const CHAT_KEY  = id => 'ada_chat_'  + id;
 const USAGE_KEY = id => 'ada_usage_' + id;
+const TAGS_KEY  = 'ada_usage_tags';
 
 function saveAiUsageLocal(sessionId) {
   try {
@@ -605,6 +607,25 @@ function loadAiUsageLocal(sessionId) {
     const d = localStorage.getItem(USAGE_KEY(sessionId));
     return d ? JSON.parse(d) : null;
   } catch(e) { return null; }
+}
+
+// ── Per-tag (address) usage accumulator ─────────────────────────────────────
+function loadTagsUsage() {
+  try { return JSON.parse(localStorage.getItem(TAGS_KEY)) || {}; } catch(e) { return {}; }
+}
+function addToTagUsage(tag, inputTokens, outputTokens) {
+  if (!tag) return;
+  try {
+    const tags = loadTagsUsage();
+    if (!tags[tag]) tags[tag] = { calls: 0, input_tokens: 0, output_tokens: 0 };
+    tags[tag].calls++;
+    tags[tag].input_tokens  += inputTokens;
+    tags[tag].output_tokens += outputTokens;
+    localStorage.setItem(TAGS_KEY, JSON.stringify(tags));
+  } catch(e) {}
+}
+function clearTagsUsage() {
+  try { localStorage.removeItem(TAGS_KEY); } catch(e) {}
 }
 
 function saveChatLocal(sessionId, messages) {
@@ -829,6 +850,7 @@ function activateSession(session) {
   sessionInputTokens    = storedUsage?.input_tokens  || 0;
   sessionOutputTokens   = storedUsage?.output_tokens || 0;
   sessionStartedAt      = session.started_at || new Date().toISOString();
+  sessionCurrentTag     = session.address || null;
   pendingLat = null; pendingLon = null; pendingBearing = null;
   showHeadingSlider();
 
@@ -960,10 +982,13 @@ async function sendQuestion() {
     currentMessages.push({ role: 'assistant', content: reply, timestamp: replyTs });
     if (d.sources) lastSources = d.sources;
     if (d.usage) {
+      const inTok  = d.usage.input_tokens  || 0;
+      const outTok = d.usage.output_tokens || 0;
       sessionAiCalls++;
-      sessionInputTokens  += d.usage.input_tokens  || 0;
-      sessionOutputTokens += d.usage.output_tokens || 0;
+      sessionInputTokens  += inTok;
+      sessionOutputTokens += outTok;
       saveAiUsageLocal(currentSessionId);
+      addToTagUsage(sessionCurrentTag, inTok, outTok);
     }
     saveChatLocal(currentSessionId, currentMessages);
   } catch(e) {
@@ -1185,7 +1210,68 @@ function renderAiConsumption() {
     '</div>' +
     `<p class="consumption-note">Model: claude-haiku-4-5-20251001 &nbsp;·&nbsp;
      Pricing est.: $0.80/MTok input, $4.00/MTok output &nbsp;·&nbsp;
-     Tracks the current browser session only.</p>`;
+     Tracks the current browser session only.</p>` +
+    buildTagTable();
+}
+
+function buildTagTable() {
+  const tags = loadTagsUsage();
+  const entries = Object.entries(tags);
+  if (!entries.length) return '';
+
+  // Sort by total tokens descending
+  entries.sort((a, b) =>
+    (b[1].input_tokens + b[1].output_tokens) - (a[1].input_tokens + a[1].output_tokens));
+
+  let totalCalls = 0, totalIn = 0, totalOut = 0;
+  const rows = entries.map(([tag, u]) => {
+    totalCalls += u.calls;
+    totalIn    += u.input_tokens;
+    totalOut   += u.output_tokens;
+    const cost = u.input_tokens * AI_PRICE_IN + u.output_tokens * AI_PRICE_OUT;
+    return `<tr>
+      <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+          title="${escHtml(tag)}">${escHtml(tag)}</td>
+      <td style="text-align:right">${u.calls.toLocaleString()}</td>
+      <td style="text-align:right">${u.input_tokens.toLocaleString()}</td>
+      <td style="text-align:right">${u.output_tokens.toLocaleString()}</td>
+      <td style="text-align:right">${fmtCostStr(cost)}</td>
+    </tr>`;
+  }).join('');
+
+  const totalCost = totalIn * AI_PRICE_IN + totalOut * AI_PRICE_OUT;
+  const clearBtn  = `<button class="btn btn-ghost" style="font-size:.72rem;padding:3px 10px;margin-left:8px;"
+    onclick="clearTagsUsage();renderAiConsumption()">Clear</button>`;
+
+  return `
+    <div style="margin-top:20px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+        <span style="font-size:.8rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">
+          Usage by Location (all sessions, this browser)
+        </span>${clearBtn}
+      </div>
+      <table class="consumption-table">
+        <thead><tr>
+          <th>Address / Tag</th>
+          <th style="text-align:right">Calls</th>
+          <th style="text-align:right">Input Tokens</th>
+          <th style="text-align:right">Output Tokens</th>
+          <th style="text-align:right">Est. Cost</th>
+        </tr></thead>
+        <tbody>
+          ${rows}
+          <tr style="border-top:2px solid var(--border);font-weight:600;">
+            <td>Total</td>
+            <td style="text-align:right">${totalCalls.toLocaleString()}</td>
+            <td style="text-align:right">${totalIn.toLocaleString()}</td>
+            <td style="text-align:right">${totalOut.toLocaleString()}</td>
+            <td style="text-align:right;color:var(--green)">${fmtCostStr(totalCost)}</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="consumption-note">Stored in browser localStorage &nbsp;·&nbsp;
+        Tag = session address &nbsp;·&nbsp; Also visible in Anthropic Console (Usage tab) filtered by user_id.</p>
+    </div>`;
 }
 
 async function fetchAndRenderAwsConsumption() {

@@ -145,11 +145,14 @@ def answer_question(question: str,
 
     messages = list(history) + [{"role": "user", "content": context_note}]
 
+    # Pass address as user_id so calls are labelled in the Anthropic Console
+    address_tag = location.get("address", "unknown")[:512]
     msg = client.messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=512,
         system=_QA_SYSTEM,
         messages=messages,
+        metadata={"user_id": address_tag},
     )
     usage = {
         "input_tokens":  msg.usage.input_tokens,
