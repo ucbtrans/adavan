@@ -294,6 +294,99 @@ aside h2 {
   overflow: hidden;
 }
 
+/* ── Consumption modal ───────────────────────────────────────── */
+#consumption-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(0,0,0,0.78);
+  display: none;
+  align-items: flex-start;
+  justify-content: center;
+  overflow-y: auto;
+  padding: 24px 16px;
+}
+.consumption-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 28px 32px;
+  width: 100%;
+  max-width: 980px;
+  margin: auto;
+}
+.consumption-card h2 {
+  font-size: 1.1rem;
+  color: var(--blue);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.consumption-section {
+  margin-top: 24px;
+}
+.consumption-section h3 {
+  font-size: .85rem;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+  margin-bottom: 14px;
+}
+.consumption-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .82rem;
+}
+.consumption-table th {
+  background: rgba(255,255,255,0.04);
+  color: var(--muted);
+  font-size: .72rem;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  padding: 8px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.consumption-table td {
+  padding: 7px 14px;
+  border-bottom: 1px solid rgba(48,54,61,0.5);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.consumption-table tr:hover td { background: rgba(255,255,255,0.025); }
+.consumption-table .td-fn {
+  color: var(--blue);
+  font-weight: 600;
+  border-top: 2px solid var(--border);
+}
+.consumption-table .td-fn-cont { color: transparent; border-top: none; }
+.consumption-table .td-cost td  { color: var(--green); font-style: italic; }
+.consumption-table .td-na       { color: var(--muted); }
+.consumption-note {
+  font-size: .72rem;
+  color: var(--muted);
+  margin-top: 8px;
+  line-height: 1.6;
+}
+.ai-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.ai-stat-card {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+.ai-stat-card .stat-label { font-size:.72rem; color:var(--muted); margin-bottom:4px; }
+.ai-stat-card .stat-value { font-size:1.15rem; font-weight:600; color:var(--text); font-variant-numeric:tabular-nums; }
+.ai-stat-card.stat-cost .stat-value { color: var(--green); }
+
 /* ── Source data block ───────────────────────────────────────── */
 .source-block {
   align-self: flex-start;
@@ -348,9 +441,13 @@ aside h2 {
     <img src="/ada_logo.jpg" style="height:40px;border-radius:6px;display:block;" alt="ADA Logo"/>
     <h1>ADA <span>Driving Assistant</span></h1>
   </div>
-  <div id="wake-indicator">
-    <div id="wake-dot"></div>
-    <span id="wake-status">Say "Hey ADA" to start</span>
+  <div style="display:flex;align-items:center;gap:12px;">
+    <div id="wake-indicator">
+      <div id="wake-dot"></div>
+      <span id="wake-status">Say "Hey ADA" to start</span>
+    </div>
+    <button class="btn btn-ghost btn-icon" onclick="openConsumption()"
+            title="Resource Consumption" style="font-size:1.1rem;padding:5px 9px;">📊</button>
   </div>
 </header>
 
@@ -438,6 +535,32 @@ aside h2 {
   </div><!-- /content -->
 </div><!-- /main -->
 
+<!-- ── Consumption Modal ─────────────────────────────────────── -->
+<div id="consumption-modal">
+  <div class="consumption-card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+      <h2>📊 Resource Consumption</h2>
+      <button class="btn btn-ghost" onclick="closeConsumption()" style="font-size:.9rem;">✕ Close</button>
+    </div>
+
+    <!-- AI section -->
+    <div class="consumption-section">
+      <h3>🤖 AI Consumption — Current Session</h3>
+      <div id="ai-consumption-content">
+        <p style="color:var(--muted);font-size:.85rem;">Start a session and ask a question to see AI usage.</p>
+      </div>
+    </div>
+
+    <!-- AWS section -->
+    <div class="consumption-section">
+      <h3>☁️ AWS Lambda Consumption</h3>
+      <div id="aws-consumption-content">
+        <p style="color:var(--muted);font-size:.85rem;">Click the icon to load metrics.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 // ── API base URL (empty = relative for local dev; injected at S3 deploy time)
 const API_BASE = window.ADA_API_BASE || '';
@@ -450,6 +573,19 @@ let wakeRecognition = null;
 let questionRecognition = null;
 let addressRecognition = null;
 let lastSources = [];   // raw nearby objects from the most recent /api/ask response
+
+// ── AI consumption tracking (current session only) ──────────────────────────
+let sessionAiCalls        = 0;
+let sessionInputTokens    = 0;
+let sessionOutputTokens   = 0;
+let sessionStartedAt      = null;   // ISO string — set when a session is activated
+
+// Pricing: claude-haiku-4-5-20251001 (estimated, $/token)
+const AI_PRICE_IN  = 0.80  / 1_000_000;
+const AI_PRICE_OUT = 4.00  / 1_000_000;
+// Lambda pricing (us-west-1)
+const LAMBDA_GB_SEC_PRICE = 0.0000166667;   // per GB-second
+const LAMBDA_REQ_PRICE    = 0.20 / 1_000_000; // per request
 
 // ── Chat localStorage ────────────────────────────────────────────────────
 const CHAT_KEY = id => 'ada_chat_' + id;
@@ -668,9 +804,13 @@ async function startSession() {
 
 // ── Activate session (new or resumed) ────────────────────────────────────
 function activateSession(session) {
-  currentSessionId = session.id;
-  currentMessages  = [];
-  lastSources      = [];
+  currentSessionId      = session.id;
+  currentMessages       = [];
+  lastSources           = [];
+  sessionAiCalls        = 0;
+  sessionInputTokens    = 0;
+  sessionOutputTokens   = 0;
+  sessionStartedAt      = session.started_at || new Date().toISOString();
   pendingLat = null; pendingLon = null; pendingBearing = null;
   showHeadingSlider();
 
@@ -801,6 +941,11 @@ async function sendQuestion() {
     appendMessage('assistant', reply, replyTs, true);
     currentMessages.push({ role: 'assistant', content: reply, timestamp: replyTs });
     if (d.sources) lastSources = d.sources;
+    if (d.usage) {
+      sessionAiCalls++;
+      sessionInputTokens  += d.usage.input_tokens  || 0;
+      sessionOutputTokens += d.usage.output_tokens || 0;
+    }
     saveChatLocal(currentSessionId, currentMessages);
   } catch(e) {
     removeTyping();
@@ -969,6 +1114,141 @@ function startQuestionSpeech() {
   questionRecognition.start();
 }
 
+// ── Consumption modal ─────────────────────────────────────────────────────────
+
+function openConsumption() {
+  document.getElementById('consumption-modal').style.display = 'flex';
+  renderAiConsumption();
+  fetchAndRenderAwsConsumption();
+}
+
+function closeConsumption() {
+  document.getElementById('consumption-modal').style.display = 'none';
+}
+
+function fmtN(v) {
+  if (v == null) return '<span class="td-na">N/A</span>';
+  return Number(v).toLocaleString();
+}
+function fmtMs(v) {
+  if (v == null) return '<span class="td-na">N/A</span>';
+  return Math.round(v).toLocaleString() + ' ms';
+}
+function fmtGb(v, memMb) {
+  if (v == null) return '<span class="td-na">N/A</span>';
+  return (v / 1000 * memMb / 1024).toFixed(4) + ' GB·s';
+}
+function fmtCostStr(v) {
+  if (v == null || v === 0) return '$0.000000';
+  if (v < 0.000001) return '&lt; $0.000001';
+  return '$' + v.toFixed(6);
+}
+
+function renderAiConsumption() {
+  const totalTokens = sessionInputTokens + sessionOutputTokens;
+  const cost = sessionInputTokens * AI_PRICE_IN + sessionOutputTokens * AI_PRICE_OUT;
+
+  const stats = [
+    { label: 'API Calls',      value: sessionAiCalls.toLocaleString() },
+    { label: 'Input Tokens',   value: sessionInputTokens.toLocaleString() },
+    { label: 'Output Tokens',  value: sessionOutputTokens.toLocaleString() },
+    { label: 'Total Tokens',   value: totalTokens.toLocaleString() },
+    { label: 'Estimated Cost', value: fmtCostStr(cost), cost: true },
+  ];
+
+  document.getElementById('ai-consumption-content').innerHTML =
+    '<div class="ai-stats-grid">' +
+    stats.map(s => `
+      <div class="ai-stat-card${s.cost ? ' stat-cost' : ''}">
+        <div class="stat-label">${s.label}</div>
+        <div class="stat-value">${s.value}</div>
+      </div>`).join('') +
+    '</div>' +
+    `<p class="consumption-note">Model: claude-haiku-4-5-20251001 &nbsp;·&nbsp;
+     Pricing est.: $0.80/MTok input, $4.00/MTok output &nbsp;·&nbsp;
+     Tracks the current browser session only.</p>`;
+}
+
+async function fetchAndRenderAwsConsumption() {
+  const el = document.getElementById('aws-consumption-content');
+  el.innerHTML = '<span style="color:var(--muted);font-size:.85rem;">Loading CloudWatch metrics…</span>';
+
+  try {
+    const qs = sessionStartedAt
+      ? '?session_start=' + encodeURIComponent(sessionStartedAt) : '';
+    const r = await fetch(API_BASE + '/api/consumption' + qs);
+    const data = await r.json();
+    if (data.error) throw new Error(data.error);
+    el.innerHTML = buildAwsTable(data);
+  } catch (e) {
+    el.innerHTML = `<span style="color:var(--red);font-size:.85rem;">Failed to load metrics: ${escHtml(e.message)}</span>`;
+  }
+}
+
+function buildAwsTable(data) {
+  const cols      = ['session', '24h', '7d', '30d'];
+  const colLabels = ['Current Session', 'Last 24 Hours', 'Last 7 Days', 'Last 30 Days'];
+
+  // Row definition per function
+  const rowDefs = [
+    { label: 'Invocations',          metric: 'Invocations', fmt: (v)       => fmtN(v) },
+    { label: 'Duration (ms)',         metric: 'Duration',    fmt: (v)       => fmtMs(v) },
+    { label: 'Billed Duration (ms)',  metric: 'Duration',    fmt: (v)       => fmtMs(v) },
+    { label: 'Billed (GB·sec)',       metric: 'Duration',    fmt: (v, mem)  => fmtGb(v, mem) },
+    { label: 'Est. Lambda Cost',      metric: null,          cost: true,
+      fmt: (pdata, mem) => {
+        const inv = pdata?.Invocations;
+        const dur = pdata?.Duration;
+        if (inv == null && dur == null) return '<span class="td-na">N/A</span>';
+        const gbSec = ((dur || 0) / 1000) * (mem / 1024);
+        const c = gbSec * LAMBDA_GB_SEC_PRICE + (inv || 0) * LAMBDA_REQ_PRICE;
+        return fmtCostStr(c);
+      }
+    },
+  ];
+
+  let html = `<table class="consumption-table">
+    <thead><tr>
+      <th>Lambda</th><th>Metric</th>
+      ${colLabels.map(l => `<th style="text-align:right">${l}</th>`).join('')}
+    </tr></thead><tbody>`;
+
+  for (const [fn, fnData] of Object.entries(data)) {
+    const mem = fnData.memory_mb || 512;
+    rowDefs.forEach((row, idx) => {
+      const isCost  = !!row.cost;
+      const isFirst = idx === 0;
+      const cells   = cols.map(col => {
+        const pdata = fnData[col];
+        let val;
+        if (isCost) {
+          val = row.fmt(pdata, mem);
+        } else {
+          const raw = pdata?.[row.metric];
+          val = (row.metric === 'Duration' && row.label.includes('GB'))
+            ? fmtGb(raw, mem)
+            : row.fmt(raw);
+        }
+        return `<td style="text-align:right">${val}</td>`;
+      }).join('');
+
+      html += `<tr${isCost ? ' class="td-cost"' : ''}>
+        <td class="${isFirst ? 'td-fn' : 'td-fn-cont'}">${isFirst ? fn : ''}</td>
+        <td>${row.label}</td>
+        ${cells}
+      </tr>`;
+    });
+  }
+
+  html += `</tbody></table>
+    <p class="consumption-note">
+      Lambda pricing (us-west-1): $0.0000166667/GB·sec + $0.20/1M requests &nbsp;·&nbsp;
+      Billed Duration ≈ Duration (billed to nearest 1ms since 2020) &nbsp;·&nbsp;
+      Metrics via CloudWatch; "Current Session" uses session start time.
+    </p>`;
+  return html;
+}
+
 // ── Column resize ─────────────────────────────────────────────────────────────
 function initResizeHandle(handleId, targetEl, minW, maxW, onResize) {
   const handle = document.getElementById(handleId);
@@ -1002,6 +1282,14 @@ function initResizeHandle(handleId, targetEl, minW, maxW, onResize) {
 window.addEventListener('DOMContentLoaded', () => {
   loadSessions().catch(e => console.error('loadSessions failed:', e));
   try { initWakeWord(); } catch(e) { console.error('initWakeWord failed:', e); }
+
+  // Close consumption modal on backdrop click or Escape
+  document.getElementById('consumption-modal').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeConsumption();
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeConsumption();
+  });
   try {
     initResizeHandle('sidebar-resize', document.querySelector('aside'), 150, 420);
     initResizeHandle('map-resize', document.getElementById('session-map-panel'), 200, 1100,

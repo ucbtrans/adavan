@@ -124,7 +124,7 @@ def _build_context(location: dict, nearby: list[dict]) -> str:
 def answer_question(question: str,
                     location: dict,
                     nearby_objects: list[dict],
-                    history: list[dict]) -> str:
+                    history: list[dict]) -> tuple[str, dict]:
     """
     Answer a driving question using Claude with full session history.
 
@@ -135,7 +135,7 @@ def answer_question(question: str,
         history:        Prior messages [{role, content}, ...].
 
     Returns:
-        Claude's response string.
+        (answer_text, usage_dict) where usage_dict has input_tokens / output_tokens.
     """
     context = _build_context(location, nearby_objects)
 
@@ -151,4 +151,9 @@ def answer_question(question: str,
         system=_QA_SYSTEM,
         messages=messages,
     )
-    return msg.content[0].text.strip()
+    usage = {
+        "input_tokens":  msg.usage.input_tokens,
+        "output_tokens": msg.usage.output_tokens,
+        "model":         "claude-haiku-4-5-20251001",
+    }
+    return msg.content[0].text.strip(), usage

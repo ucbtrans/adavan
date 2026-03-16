@@ -157,12 +157,96 @@ def api_ask():
     nearby        = find_nearby_objects(location["lat"], location["lon"], objects)
     history       = sess.get_history(session_id)
 
-    answer = answer_question(question, location, nearby, history)
+    answer, usage = answer_question(question, location, nearby, history)
 
     sess.add_message(session_id, "user",      question)
     sess.add_message(session_id, "assistant", answer)
 
-    return jsonify({"answer": answer, "nearby_count": len(nearby), "sources": nearby})
+    return jsonify({"answer": answer, "nearby_count": len(nearby),
+                    "sources": nearby, "usage": usage})
+
+
+# -- Consumption ---------------------------------------------------------------
+
+_LAMBDA_FUNCTIONS = [
+    {"name": "ada-api",        "memory_mb": 512},
+    {"name": "ada-simulation", "memory_mb": 512},
+]
+
+
+def _cw_metric_sum(cw, func_name: str, metric: str,
+                   start, end, period: int) -> float | None:
+    """Return the Sum of a CloudWatch Lambda metric over [start, end]."""
+    try:
+        resp = cw.get_metric_statistics(
+            Namespace="AWS/Lambda",
+            MetricName=metric,
+            Dimensions=[{"Name": "FunctionName", "Value": func_name}],
+            StartTime=start,
+            EndTime=end,
+            Period=period,
+            Statistics=["Sum"],
+        )
+        dps = resp.get("Datapoints", [])
+        return round(sum(dp["Sum"] for dp in dps), 2) if dps else None
+    except Exception:
+        return None
+
+
+@app.route("/api/consumption")
+def api_consumption():
+    """Return Lambda CloudWatch metrics and model info for the consumption page."""
+    from datetime import datetime, timedelta, timezone
+    import boto3
+
+    session_start_str = request.args.get("session_start", "")
+    region = os.environ.get("AWS_DEFAULT_REGION", "us-west-1")
+
+    now = datetime.now(timezone.utc)
+    try:
+        session_start = datetime.fromisoformat(
+            session_start_str.replace("Z", "+00:00")
+        ) if session_start_str else now - timedelta(hours=1)
+    except Exception:
+        session_start = now - timedelta(hours=1)
+
+    # (label, start_time)
+    periods = [
+        ("session", session_start),
+        ("24h",     now - timedelta(hours=24)),
+        ("7d",      now - timedelta(days=7)),
+        ("30d",     now - timedelta(days=30)),
+    ]
+
+    try:
+        cw = boto3.client("cloudwatch", region_name=region)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    result = {}
+    for func in _LAMBDA_FUNCTIONS:
+        fn  = func["name"]
+        mem = func["memory_mb"]
+        result[fn] = {"memory_mb": mem}
+
+        for period_name, start_time in periods:
+            span = max(60.0, (now - start_time).total_seconds())
+            # Choose CloudWatch granularity (must be multiple of 60)
+            if span <= 3_600:
+                cw_period = 60
+            elif span <= 86_400:
+                cw_period = 300
+            elif span <= 604_800:
+                cw_period = 3_600
+            else:
+                cw_period = 86_400
+
+            result[fn][period_name] = {
+                m: _cw_metric_sum(cw, fn, m, start_time, now, cw_period)
+                for m in ("Invocations", "Duration", "Errors")
+            }
+
+    return jsonify(result)
 
 
 # ── Lambda entry point (aws-wsgi bridges Flask WSGI → API Gateway) ───────────
