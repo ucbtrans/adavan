@@ -1300,9 +1300,13 @@ function buildAwsTable(data) {
   // execution logs (REPORT lines) and requires Logs Insights to extract.
   // Duration = handler execution time only (excludes cold-start init duration).
   // GB·sec and cost are therefore slight underestimates on cold-start invocations.
+  const anyDurSec = Object.values(data).some(fnData =>
+    ['session','24h','7d','30d'].some(col => (fnData[col]?.Duration ?? 0) >= 1000)
+  );
+
   const rowDefs = [
-    { label: 'Invocations',       metric: 'Invocations', fmt: (v)      => fmtN(v) },
-    { label: 'Duration (ms)',      metric: 'Duration',    fmt: (v)      => fmtMs(v) },
+    { label: 'Invocations',                  metric: 'Invocations', fmt: (v)      => fmtN(v) },
+    { label: anyDurSec ? 'Duration (sec)' : 'Duration (ms)', metric: 'Duration', fmt: (v) => fmtMs(v) },
     { label: 'Billed (GB·sec)',    metric: 'Duration',    fmt: (v, mem) => fmtGb(v, mem) },
     { label: 'Errors',             metric: 'Errors',      fmt: (v)      => fmtN(v) },
     { label: 'Est. Lambda Cost',   metric: null,          cost: true,
