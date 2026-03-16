@@ -294,6 +294,38 @@ aside h2 {
   overflow: hidden;
 }
 
+/* ── Source data block ───────────────────────────────────────── */
+.source-block {
+  align-self: flex-start;
+  max-width: 90%;
+  background: #1a1900;
+  border: 1px solid var(--yellow);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: .78rem;
+}
+.source-block .source-title {
+  color: var(--yellow);
+  font-weight: 600;
+  margin-bottom: 10px;
+  font-size: .82rem;
+}
+.source-item {
+  background: rgba(255,255,255,0.04);
+  border-left: 3px solid var(--yellow);
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  font-family: 'Consolas', 'Courier New', monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #ccd;
+}
+.source-item .src-key   { color: #79b8ff; }
+.source-item .src-str   { color: #9ecbff; }
+.source-item .src-num   { color: #f8c555; }
+.source-item .src-bool  { color: #56d364; }
+
 /* ── Resize handles ──────────────────────────────────────────── */
 .resize-handle {
   width: 5px;
@@ -417,6 +449,7 @@ let pendingBearing = null;
 let wakeRecognition = null;
 let questionRecognition = null;
 let addressRecognition = null;
+let lastSources = [];   // raw nearby objects from the most recent /api/ask response
 
 // ── Chat localStorage ────────────────────────────────────────────────────
 const CHAT_KEY = id => 'ada_chat_' + id;
@@ -637,6 +670,7 @@ async function startSession() {
 function activateSession(session) {
   currentSessionId = session.id;
   currentMessages  = [];
+  lastSources      = [];
   pendingLat = null; pendingLon = null; pendingBearing = null;
   showHeadingSlider();
 
@@ -688,6 +722,49 @@ async function resumeSession(sessionId) {
   activateSession(session);
 }
 
+// ── Source request detection ─────────────────────────────────────────────────
+const SOURCE_RE = /\b(show|display|list|reveal|give\s+me|what\s+are|see)\b.{0,40}\b(source|event|object|incident|hazard|data|detail)/i;
+
+function isSourceRequest(q) {
+  return SOURCE_RE.test(q) || /^source[s]?(\s|$)/i.test(q);
+}
+
+// ── Source rendering ──────────────────────────────────────────────────────────
+function syntaxColor(json) {
+  return json
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/("[\w_ ]+")(\s*:)/g, '<span class="src-key">$1</span>$2')
+    .replace(/:\s*("([^"\\]|\\.)*")/g, (m, s) => ': <span class="src-str">' + s + '</span>')
+    .replace(/:\s*(-?\d+\.?\d*)/g, (m, n) => ': <span class="src-num">' + n + '</span>')
+    .replace(/:\s*(true|false)/g, (m, b) => ': <span class="src-bool">' + b + '</span>');
+}
+
+function appendSourceBlock(sources) {
+  const log = document.getElementById('chat-log');
+  const div = document.createElement('div');
+  div.className = 'source-block';
+
+  if (!sources || !sources.length) {
+    div.innerHTML = '<div class="source-title">📋 Source Data</div>'
+      + '<span style="color:var(--muted)">No nearby events or objects were found for the last response.</span>';
+  } else {
+    const items = sources.map(obj => {
+      // Rename _distance_m → distance_m for display; keep all other fields
+      const display = {};
+      if (obj._distance_m !== undefined) display.distance_m = obj._distance_m;
+      for (const [k, v] of Object.entries(obj)) {
+        if (k !== '_distance_m') display[k] = v;
+      }
+      return '<div class="source-item">' + syntaxColor(JSON.stringify(display, null, 2)) + '</div>';
+    }).join('');
+    div.innerHTML = '<div class="source-title">📋 Source events/objects ('
+      + sources.length + ') used in the last response:</div>' + items;
+  }
+
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+}
+
 // ── Q&A ────────────────────────────────────────────────────────────────────
 async function sendQuestion() {
   const input = document.getElementById('question-input');
@@ -695,11 +772,20 @@ async function sendQuestion() {
   if (!question || !currentSessionId) return;
 
   input.value = '';
-  document.getElementById('send-btn').disabled = true;
+  document.getElementById('send-btn').disabled = false;
 
   const userTs = new Date().toISOString();
   appendMessage('user', question, userTs, true);
   currentMessages.push({ role: 'user', content: question, timestamp: userTs });
+
+  // Intercept source-data requests — render locally without calling the API
+  if (isSourceRequest(question)) {
+    appendSourceBlock(lastSources);
+    saveChatLocal(currentSessionId, currentMessages);
+    return;
+  }
+
+  document.getElementById('send-btn').disabled = true;
   showTyping();
 
   try {
@@ -714,6 +800,7 @@ async function sendQuestion() {
     const reply   = d.error ? 'Error: ' + d.error : d.answer;
     appendMessage('assistant', reply, replyTs, true);
     currentMessages.push({ role: 'assistant', content: reply, timestamp: replyTs });
+    if (d.sources) lastSources = d.sources;
     saveChatLocal(currentSessionId, currentMessages);
   } catch(e) {
     removeTyping();

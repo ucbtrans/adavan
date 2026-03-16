@@ -162,7 +162,7 @@ def api_ask():
     sess.add_message(session_id, "user",      question)
     sess.add_message(session_id, "assistant", answer)
 
-    return jsonify({"answer": answer, "nearby_count": len(nearby)})
+    return jsonify({"answer": answer, "nearby_count": len(nearby), "sources": nearby})
 
 
 # ── Lambda entry point (aws-wsgi bridges Flask WSGI → API Gateway) ───────────
