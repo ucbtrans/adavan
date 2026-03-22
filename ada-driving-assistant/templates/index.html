@@ -1012,9 +1012,10 @@ async function startSession() {
       : parseInt(document.getElementById('bearing-slider').value);
 
     const body = { address, lat, lon, bearing };
-    if (pendingDestAddress) body.destination = pendingDestAddress;
-    if (pendingDestLat)     body.dest_lat    = pendingDestLat;
-    if (pendingDestLon)     body.dest_lon    = pendingDestLon;
+    if (pendingDestAddress)  body.destination  = pendingDestAddress;
+    if (pendingDestLat)      body.dest_lat     = pendingDestLat;
+    if (pendingDestLon)      body.dest_lon     = pendingDestLon;
+    if (pendingRouteCoords)  body.route_coords = pendingRouteCoords;
 
     const r = await fetch(API_BASE + '/api/session/new', {
       method: 'POST',

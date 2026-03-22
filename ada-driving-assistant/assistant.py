@@ -85,14 +85,18 @@ def get_advisory(position: dict, detections: list[dict]) -> str:
 # ── Session Q&A ───────────────────────────────────────────────────────────────
 
 _QA_SYSTEM = """You are ADA, an AI driving assistant for Berkeley, CA.
-The user is a driver asking about current road conditions near their location.
+The user is a driver asking about road conditions along their current route.
 
 Guidelines:
+- Focus ONLY on events and objects listed in the context — these are conditions
+  along the driver's route corridor. Do NOT mention or invent hazards on other streets.
+- If the user explicitly names a street that is not on their route, you may briefly
+  note that it is off-route and answer if the data supports it; otherwise say you
+  have no data for that street.
 - Be concise and clear — you are assisting a driver.
 - Mention specific streets, distances, and hazard types when relevant.
-- If asked about a specific direction or street, focus on that.
-- Advise on detours or caution as appropriate.
-- If there are no relevant hazards, say so briefly.
+- Advise on caution or alternate paths as appropriate for the route.
+- If there are no hazards along the route, say so briefly.
 - Never make up events not listed in the context.
 - Use natural, spoken language."""
 
@@ -109,17 +113,21 @@ def _build_context(location: dict, nearby: list[dict]) -> str:
     lines = [
         f"Driver location: {address} (lat={lat}, lon={lon})",
         f"Heading: {direction} ({bearing} deg)",
+        "",
     ]
+
     if destination:
-        lines.append(f"Destination: {destination}")
-    lines.append("")
+        lines.append(f"Route: {address} → {destination}")
+        scope_label = "along the route corridor"
+    else:
+        scope_label = "within 500m"
 
     if nearby:
-        lines.append(f"Active traffic events within 500m ({len(nearby)} total):")
+        lines.append(f"Active traffic events {scope_label} ({len(nearby)} total):")
         for obj in nearby:
             lines.append(_obj_summary(obj))
     else:
-        lines.append("No active traffic events within 500m.")
+        lines.append(f"No active traffic events {scope_label}.")
 
     return "\n".join(lines)
 

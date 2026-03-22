@@ -191,6 +191,65 @@ def object_center(obj: dict) -> tuple[float | None, float | None]:
     return None, None
 
 
+# ── Route corridor search ────────────────────────────────────────────────────
+
+def _point_to_segment_dist_m(plat: float, plon: float,
+                              lat1: float, lon1: float,
+                              lat2: float, lon2: float) -> float:
+    """Minimum distance from point P to segment (lat1,lon1)→(lat2,lon2) in metres."""
+    dx = lon2 - lon1
+    dy = lat2 - lat1
+    if dx == 0 and dy == 0:
+        return haversine_m(plat, plon, lat1, lon1)
+    t = ((plon - lon1) * dx + (plat - lat1) * dy) / (dx * dx + dy * dy)
+    t = max(0.0, min(1.0, t))
+    return haversine_m(plat, plon, lat1 + t * dy, lon1 + t * dx)
+
+
+def find_objects_along_route(route_coords: list,
+                              objects: list[dict],
+                              corridor_m: float = 150) -> list[dict]:
+    """
+    Return active objects within corridor_m metres of any route segment.
+
+    Args:
+        route_coords: [[lon, lat], ...] as returned by OSRM.
+        objects:      Full city objects list.
+        corridor_m:   Half-width of the corridor in metres (default 150 m).
+    """
+    now    = datetime.now(timezone.utc)
+    result = []
+
+    for obj in objects:
+        try:
+            if datetime.fromisoformat(obj["active_at"])   > now:
+                continue
+            if datetime.fromisoformat(obj["inactive_at"]) < now:
+                continue
+        except Exception:
+            continue
+
+        olat, olon = object_center(obj)
+        if olat is None:
+            continue
+
+        min_dist = float("inf")
+        for i in range(len(route_coords) - 1):
+            lon1, lat1 = route_coords[i]
+            lon2, lat2 = route_coords[i + 1]
+            d = _point_to_segment_dist_m(olat, olon, lat1, lon1, lat2, lon2)
+            if d < min_dist:
+                min_dist = d
+                if min_dist <= corridor_m:
+                    break   # no need to keep checking segments
+
+        if min_dist <= corridor_m:
+            result.append({**obj, "_distance_m": round(min_dist)})
+
+    result.sort(key=lambda x: x["_distance_m"])
+    return result
+
+
 # ── Nearby search ────────────────────────────────────────────────────────────
 
 def find_nearby_objects(lat: float, lon: float,

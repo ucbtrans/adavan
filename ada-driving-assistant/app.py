@@ -99,9 +99,10 @@ def api_session_new():
     from location import bearing_to_direction
     bearing_dir = bearing_to_direction(bearing)
     street      = data.get("street", "")
-    destination = data.get("destination", "")
-    dest_lat    = data.get("dest_lat")
-    dest_lon    = data.get("dest_lon")
+    destination  = data.get("destination", "")
+    dest_lat     = data.get("dest_lat")
+    dest_lon     = data.get("dest_lon")
+    route_coords = data.get("route_coords")   # [[lon,lat],...] from OSRM
 
     # Deduplicate: reuse an existing session with the same address + bearing
     existing = sess.find_session(address, bearing)
@@ -113,7 +114,8 @@ def api_session_new():
                                   bearing, bearing_dir, street,
                                   destination,
                                   float(dest_lat) if dest_lat is not None else None,
-                                  float(dest_lon) if dest_lon is not None else None)
+                                  float(dest_lon) if dest_lon is not None else None,
+                                  route_coords)
     return jsonify(session)
 
 
@@ -160,8 +162,20 @@ def api_ask():
         "destination":       session.get("destination", ""),
     }
 
-    objects       = get_objects()
-    nearby        = find_nearby_objects(location["lat"], location["lon"], objects)
+    objects = get_objects()
+
+    route_json = session.get("route_coords_json", "")
+    if route_json:
+        try:
+            import json as _json
+            from location import find_objects_along_route
+            nearby = find_objects_along_route(_json.loads(route_json), objects)
+        except Exception as exc:
+            app.logger.warning("Route corridor filter failed: %s", exc)
+            nearby = find_nearby_objects(location["lat"], location["lon"], objects)
+    else:
+        nearby = find_nearby_objects(location["lat"], location["lon"], objects)
+
     history       = sess.get_history(session_id)
 
     answer, usage = answer_question(question, location, nearby, history)
