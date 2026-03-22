@@ -17,12 +17,23 @@ client = Anthropic()
 
 # ── Shared helpers ────────────────────────────────────────────────────────────
 
+def _fmt_dist(metres: float) -> str:
+    """Format a distance in US customary units (ft under 1000 ft, else miles)."""
+    feet = metres * 3.28084
+    if feet < 1000:
+        return f"{round(feet)} ft"
+    miles = metres / 1609.34
+    if miles < 10:
+        return f"{miles:.1f} mi"
+    return f"{round(miles)} mi"
+
+
 def _obj_summary(obj: dict) -> str:
     """One-line description of a traffic object."""
     t    = obj.get("type", "unknown").replace("_", " ")
     dist = obj.get("_distance_m")
     st   = obj.get("street", "")
-    dist_str = f" ({dist}m ahead)" if dist is not None else ""
+    dist_str = f" ({_fmt_dist(dist)} ahead)" if dist is not None else ""
     street_str = f" on {st}" if st else ""
 
     extras = []
