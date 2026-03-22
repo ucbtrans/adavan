@@ -667,6 +667,7 @@ let sessionMap         = null;
 let sessionMarker      = null;
 let sessionRouteLayer  = null;
 let sessionDestMarker  = null;
+let sessionEventMarkers = [];   // event/object markers placed after each /api/ask
 let previewMap         = null;
 let previewMarker      = null;
 let previewRouteLayer  = null;
@@ -688,6 +689,53 @@ function makeDestIcon() {
     <circle cx="14" cy="14" r="6" fill="white"/>
   </svg>`;
   return L.divIcon({ html: svg, iconSize: [28,36], iconAnchor: [14,36], className: '' });
+}
+
+// ── Event type → emoji mapping ───────────────────────────────────────────────
+const EVENT_EMOJI = {
+  construction_zone: '🚧',
+  road_barrier:      '🚧',
+  traffic_cone:      '🔶',
+  dropped_object:    '⚠️',
+  accident:          '🚨',
+  emergency_vehicle: '🚨',
+  police:            '🚔',
+  road_closure:      '🚫',
+  pothole:           '⚠️',
+  flooding:          '💧',
+  debris:            '⚠️',
+};
+
+function makeEventIcon(type) {
+  const emoji = EVENT_EMOJI[type] || '⚠️';
+  const html = `<div style="
+    font-size:18px; line-height:1;
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,.7));
+    cursor:default;">${emoji}</div>`;
+  return L.divIcon({ html, iconSize: [22, 22], iconAnchor: [11, 11], className: '' });
+}
+
+function placeEventMarkers(sources) {
+  // Clear previous event markers
+  sessionEventMarkers.forEach(m => m.remove());
+  sessionEventMarkers = [];
+  if (!sessionMap || !sources || !sources.length) return;
+
+  for (const obj of sources) {
+    const lat = obj._lat, lon = obj._lon;
+    if (lat == null || lon == null) continue;
+    const type    = obj.type || '';
+    const street  = obj.street || '';
+    const dist    = obj._distance_m != null ? obj._distance_m : null;
+    const distFmt = dist != null
+      ? (dist * 3.28084 < 1000 ? Math.round(dist * 3.28084) + ' ft' : (dist / 1609.34).toFixed(1) + ' mi')
+      : '';
+    const label   = `${(type).replace(/_/g,' ')}${street ? '\n' + street : ''}${distFmt ? '\n' + distFmt + ' ahead' : ''}`;
+    const marker  = L.marker([lat, lon], { icon: makeEventIcon(type) })
+      .bindTooltip(label, { permanent: false, direction: 'top', offset: [0, -8] })
+      .addTo(sessionMap);
+    sessionEventMarkers.push(marker);
+  }
 }
 
 function computeBearing(p1, p2) {
@@ -1123,6 +1171,7 @@ function activateSession(session) {
 function endSession() {
   currentSessionId = null;
   if (sessionMap) { sessionMap.remove(); sessionMap = null; sessionMarker = null; }
+  sessionEventMarkers = [];
   showSplash();
   loadSessions();
 }
@@ -1213,7 +1262,7 @@ async function sendQuestion() {
     const reply   = d.error ? 'Error: ' + d.error : d.answer;
     appendMessage('assistant', reply, replyTs, true);
     currentMessages.push({ role: 'assistant', content: reply, timestamp: replyTs });
-    if (d.sources) lastSources = d.sources;
+    if (d.sources) { lastSources = d.sources; placeEventMarkers(d.sources); }
     if (d.usage) {
       const inTok  = d.usage.input_tokens  || 0;
       const outTok = d.usage.output_tokens || 0;

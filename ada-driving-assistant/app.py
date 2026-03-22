@@ -189,8 +189,15 @@ def api_ask():
     sess.add_message(session_id, "user",      question)
     sess.add_message(session_id, "assistant", answer)
 
+    # Attach computed center coords to each source so the map can place markers
+    from location import object_center
+    sources_with_coords = []
+    for obj in nearby:
+        olat, olon = object_center(obj)
+        sources_with_coords.append({**obj, "_lat": olat, "_lon": olon})
+
     return jsonify({"answer": answer, "nearby_count": len(nearby),
-                    "sources": nearby, "usage": usage})
+                    "sources": sources_with_coords, "usage": usage})
 
 
 # -- Consumption ---------------------------------------------------------------
