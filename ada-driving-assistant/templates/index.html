@@ -511,8 +511,7 @@ aside h2 {
       <div id="location-preview-map"></div>
 
       <div style="display:flex;gap:10px;width:100%;">
-        <button class="btn btn-secondary" style="flex:1" id="show-route-btn" onclick="showRoute()">Show Route</button>
-        <button class="btn btn-primary" style="flex:1" onclick="startSession()">Start Session</button>
+        <button class="btn btn-primary" style="flex:1" id="start-session-btn" onclick="startSession()">Start Session</button>
         <button class="btn btn-ghost" onclick="showSplash()">Cancel</button>
       </div>
     </div>
@@ -963,40 +962,77 @@ async function geocodeAddress(address) {
 
 // ── Start session ────────────────────────────────────────────────────────
 async function startSession() {
-  const address = document.getElementById('origin-input').value.trim();
-  const bearing = pendingBearing !== null
-    ? pendingBearing
-    : parseInt(document.getElementById('bearing-slider').value);
+  const address  = document.getElementById('origin-input').value.trim();
+  const destAddr = document.getElementById('dest-input').value.trim();
 
   if (!address) { alert('Please enter or speak an origin address.'); return; }
 
-  let lat = pendingLat, lon = pendingLon;
+  const btn = document.getElementById('start-session-btn');
+  btn.disabled = true; btn.textContent = '…';
 
-  if (!lat || !lon) {
-    const geo = await geocodeAddress(address);
-    if (geo.error) { alert('Could not find that address. Try being more specific.'); return; }
-    lat = geo.lat; lon = geo.lon;
+  try {
+    // Geocode origin if not already done
+    let lat = pendingLat, lon = pendingLon;
+    if (!lat || !lon) {
+      const geo = await geocodeAddress(address);
+      if (geo.error) { alert('Could not find that address. Try being more specific.'); return; }
+      lat = geo.lat; lon = geo.lon;
+      pendingLat = lat; pendingLon = lon;
+    }
+
+    // Geocode destination if entered and not already done
+    if (destAddr && (!pendingDestLat || !pendingDestLon)) {
+      const geo = await geocodeAddress(destAddr);
+      if (!geo.error) {
+        pendingDestLat = geo.lat; pendingDestLon = geo.lon;
+        pendingDestAddress = destAddr;
+      }
+    }
+
+    // Fetch route if destination is available
+    if (pendingDestLat && pendingDestLon) {
+      try {
+        const coords = await fetchOsrmRoute(lat, lon, pendingDestLat, pendingDestLon);
+        if (coords) {
+          pendingRouteCoords = coords;
+          // Auto-set heading from first route segment
+          if (coords.length >= 2) {
+            const b = computeBearing(
+              { lat: coords[0][1], lon: coords[0][0] },
+              { lat: coords[1][1], lon: coords[1][0] }
+            );
+            pendingBearing = b;
+          }
+        }
+      } catch(e) { console.warn('Route fetch failed:', e); }
+    }
+
+    const bearing = pendingBearing !== null
+      ? pendingBearing
+      : parseInt(document.getElementById('bearing-slider').value);
+
+    const body = { address, lat, lon, bearing };
+    if (pendingDestAddress) body.destination = pendingDestAddress;
+    if (pendingDestLat)     body.dest_lat    = pendingDestLat;
+    if (pendingDestLon)     body.dest_lon    = pendingDestLon;
+
+    const r = await fetch(API_BASE + '/api/session/new', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    });
+    const session = await r.json();
+    if (session.error) { alert(session.error); return; }
+
+    // Persist route coords so session map can draw it
+    if (pendingRouteCoords) {
+      try { localStorage.setItem(ROUTE_KEY(session.id), JSON.stringify(pendingRouteCoords)); } catch(e) {}
+    }
+
+    activateSession(session);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Start Session';
   }
-
-  const body = { address, lat, lon, bearing };
-  if (pendingDestAddress) body.destination  = pendingDestAddress;
-  if (pendingDestLat)     body.dest_lat     = pendingDestLat;
-  if (pendingDestLon)     body.dest_lon     = pendingDestLon;
-
-  const r = await fetch(API_BASE + '/api/session/new', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify(body)
-  });
-  const session = await r.json();
-  if (session.error) { alert(session.error); return; }
-
-  // Persist route coords so session map can draw it
-  if (pendingRouteCoords) {
-    try { localStorage.setItem(ROUTE_KEY(session.id), JSON.stringify(pendingRouteCoords)); } catch(e) {}
-  }
-
-  activateSession(session);
 }
 
 // ── Activate session (new or resumed) ────────────────────────────────────
