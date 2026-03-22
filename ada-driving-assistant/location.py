@@ -208,17 +208,28 @@ def _point_to_segment_dist_m(plat: float, plon: float,
 
 def find_objects_along_route(route_coords: list,
                               objects: list[dict],
-                              corridor_m: float = 150) -> list[dict]:
+                              corridor_m: float = 40,
+                              route_streets: list | None = None) -> list[dict]:
     """
-    Return active objects within corridor_m metres of any route segment.
+    Return active objects that are on the route.
+
+    Inclusion logic (both conditions must hold):
+      1. The object's street is in route_streets (if provided), OR the object
+         has no street field and is within corridor_m metres of the polyline.
+      2. The object is within max(corridor_m, 200) metres of the polyline
+         (guards against matching a street name far off the actual route segment).
 
     Args:
-        route_coords: [[lon, lat], ...] as returned by OSRM.
-        objects:      Full city objects list.
-        corridor_m:   Half-width of the corridor in metres (default 150 m).
+        route_coords:   [[lon, lat], ...] as returned by OSRM.
+        objects:        Full city objects list.
+        corridor_m:     Tight corridor for unnamed objects (default 40 m).
+        route_streets:  Street names from OSRM steps; if provided, named objects
+                        must be on one of these streets to be included.
     """
-    now    = datetime.now(timezone.utc)
-    result = []
+    now           = datetime.now(timezone.utc)
+    street_set    = {s.lower() for s in route_streets} if route_streets else None
+    max_dist      = max(corridor_m, 200)   # upper bound even for named streets
+    result        = []
 
     for obj in objects:
         try:
@@ -233,6 +244,7 @@ def find_objects_along_route(route_coords: list,
         if olat is None:
             continue
 
+        # Compute minimum distance to the route polyline
         min_dist = float("inf")
         for i in range(len(route_coords) - 1):
             lon1, lat1 = route_coords[i]
@@ -240,10 +252,24 @@ def find_objects_along_route(route_coords: list,
             d = _point_to_segment_dist_m(olat, olon, lat1, lon1, lat2, lon2)
             if d < min_dist:
                 min_dist = d
-                if min_dist <= corridor_m:
-                    break   # no need to keep checking segments
+            if min_dist <= corridor_m:
+                break   # tight enough — no need to check further
 
-        if min_dist <= corridor_m:
+        if min_dist > max_dist:
+            continue    # too far from route regardless of street name
+
+        obj_street = obj.get("street", "").lower()
+
+        if street_set:
+            # Include only if the object is on a named route street,
+            # OR has no street field and is within the tight corridor.
+            on_route = (obj_street and obj_street in street_set) or \
+                       (not obj_street and min_dist <= corridor_m)
+        else:
+            # No street names available — use tight corridor only
+            on_route = min_dist <= corridor_m
+
+        if on_route:
             result.append({**obj, "_distance_m": round(min_dist)})
 
     result.sort(key=lambda x: x["_distance_m"])

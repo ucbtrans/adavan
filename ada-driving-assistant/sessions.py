@@ -73,7 +73,8 @@ def create_session(address: str, lat: float, lon: float,
                    destination: str = "",
                    dest_lat: float | None = None,
                    dest_lon: float | None = None,
-                   route_coords: list | None = None) -> dict:
+                   route_coords: list | None = None,
+                   route_streets: list | None = None) -> dict:
     now = datetime.now(timezone.utc).isoformat()
     session = {
         "id":                str(uuid.uuid4()),
@@ -88,7 +89,8 @@ def create_session(address: str, lat: float, lon: float,
         "destination":       destination,
         "dest_lat":          dest_lat,
         "dest_lon":          dest_lon,
-        "route_coords_json": json.dumps(route_coords) if route_coords else "",
+        "route_coords_json":  json.dumps(route_coords)  if route_coords  else "",
+        "route_streets_json": json.dumps(route_streets) if route_streets else "",
         "messages":          [],
     }
 

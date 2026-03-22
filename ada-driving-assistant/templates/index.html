@@ -586,7 +586,8 @@ let currentSessionId = null;
 let pendingLat = null, pendingLon = null;
 let pendingBearing = null;
 let pendingDestLat = null, pendingDestLon = null, pendingDestAddress = null;
-let pendingRouteCoords = null;   // [[lon,lat],...] from OSRM, saved to localStorage on session start
+let pendingRouteCoords  = null;   // [[lon,lat],...] from OSRM, saved to localStorage on session start
+let pendingRouteStreets = null;   // string[] of street names from OSRM steps
 let wakeRecognition = null;
 let questionRecognition = null;
 let addressRecognition = null;
@@ -897,15 +898,16 @@ async function showRoute() {
     }
 
     if (destAddr && pendingDestLat) {
-      const coords = await fetchOsrmRoute(pendingLat, pendingLon, pendingDestLat, pendingDestLon);
-      if (!coords) { alert('Could not calculate a route between those addresses.'); return; }
-      pendingRouteCoords = coords;
-      drawPreviewRoute(coords, pendingLat, pendingLon, pendingDestLat, pendingDestLon);
+      const result = await fetchOsrmRoute(pendingLat, pendingLon, pendingDestLat, pendingDestLon);
+      if (!result) { alert('Could not calculate a route between those addresses.'); return; }
+      pendingRouteCoords  = result.coords;
+      pendingRouteStreets = result.streets;
+      drawPreviewRoute(result.coords, pendingLat, pendingLon, pendingDestLat, pendingDestLon);
       // Auto-set heading from first route segment
-      if (coords.length >= 2) {
+      if (result.coords.length >= 2) {
         const b = computeBearing(
-          { lat: coords[0][1], lon: coords[0][0] },
-          { lat: coords[1][1], lon: coords[1][0] }
+          { lat: result.coords[0][1], lon: result.coords[0][0] },
+          { lat: result.coords[1][1], lon: result.coords[1][0] }
         );
         showHeadingAuto(b, bearingDir(b), 'from route direction');
       }
@@ -918,11 +920,19 @@ async function showRoute() {
 }
 
 async function fetchOsrmRoute(lat1, lon1, lat2, lon2) {
-  const url = `https://router.project-osrm.org/route/v1/driving/${lon1},${lat1};${lon2},${lat2}?overview=full&geometries=geojson`;
+  const url = `https://router.project-osrm.org/route/v1/driving/${lon1},${lat1};${lon2},${lat2}?overview=full&geometries=geojson&steps=true`;
   const r = await fetch(url);
   const d = await r.json();
   if (d.code !== 'Ok' || !d.routes?.length) return null;
-  return d.routes[0].geometry.coordinates; // [[lon, lat], ...]
+  const coords = d.routes[0].geometry.coordinates; // [[lon, lat], ...]
+  // Collect unique non-empty street names from all steps
+  const streets = new Set();
+  for (const leg of d.routes[0].legs || []) {
+    for (const step of leg.steps || []) {
+      if (step.name) streets.add(step.name);
+    }
+  }
+  return { coords, streets: [...streets] };
 }
 
 function drawPreviewRoute(coords, oLat, oLon, dLat, dLon) {
@@ -992,14 +1002,15 @@ async function startSession() {
     // Fetch route if destination is available
     if (pendingDestLat && pendingDestLon) {
       try {
-        const coords = await fetchOsrmRoute(lat, lon, pendingDestLat, pendingDestLon);
-        if (coords) {
-          pendingRouteCoords = coords;
+        const result = await fetchOsrmRoute(lat, lon, pendingDestLat, pendingDestLon);
+        if (result) {
+          pendingRouteCoords  = result.coords;
+          pendingRouteStreets = result.streets;
           // Auto-set heading from first route segment
-          if (coords.length >= 2) {
+          if (result.coords.length >= 2) {
             const b = computeBearing(
-              { lat: coords[0][1], lon: coords[0][0] },
-              { lat: coords[1][1], lon: coords[1][0] }
+              { lat: result.coords[0][1], lon: result.coords[0][0] },
+              { lat: result.coords[1][1], lon: result.coords[1][0] }
             );
             pendingBearing = b;
           }
@@ -1015,7 +1026,8 @@ async function startSession() {
     if (pendingDestAddress)  body.destination  = pendingDestAddress;
     if (pendingDestLat)      body.dest_lat     = pendingDestLat;
     if (pendingDestLon)      body.dest_lon     = pendingDestLon;
-    if (pendingRouteCoords)  body.route_coords = pendingRouteCoords;
+    if (pendingRouteCoords)  body.route_coords  = pendingRouteCoords;
+    if (pendingRouteStreets) body.route_streets = pendingRouteStreets;
 
     const r = await fetch(API_BASE + '/api/session/new', {
       method: 'POST',

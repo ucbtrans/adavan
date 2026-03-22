@@ -102,7 +102,8 @@ def api_session_new():
     destination  = data.get("destination", "")
     dest_lat     = data.get("dest_lat")
     dest_lon     = data.get("dest_lon")
-    route_coords = data.get("route_coords")   # [[lon,lat],...] from OSRM
+    route_coords  = data.get("route_coords")    # [[lon,lat],...] from OSRM
+    route_streets = data.get("route_streets")   # [str,...] street names from OSRM steps
 
     # Deduplicate: reuse an existing session with the same address + bearing
     existing = sess.find_session(address, bearing)
@@ -115,7 +116,8 @@ def api_session_new():
                                   destination,
                                   float(dest_lat) if dest_lat is not None else None,
                                   float(dest_lon) if dest_lon is not None else None,
-                                  route_coords)
+                                  route_coords,
+                                  route_streets)
     return jsonify(session)
 
 
@@ -169,7 +171,11 @@ def api_ask():
         try:
             import json as _json
             from location import find_objects_along_route
-            nearby = find_objects_along_route(_json.loads(route_json), objects)
+            route_streets_raw = session.get("route_streets_json", "")
+            route_streets = _json.loads(route_streets_raw) if route_streets_raw else None
+            nearby = find_objects_along_route(
+                _json.loads(route_json), objects, route_streets=route_streets
+            )
         except Exception as exc:
             app.logger.warning("Route corridor filter failed: %s", exc)
             nearby = find_nearby_objects(location["lat"], location["lon"], objects)
