@@ -534,7 +534,8 @@ aside h2 {
           <span class="meta" id="session-heading">—</span>
           <span class="meta" id="session-dest" style="display:none;">→ <span id="session-dest-addr"></span></span>
           <span class="meta" id="session-time" style="margin-left:auto;"></span>
-          <button class="btn btn-ghost" style="margin-left:12px;font-size:.8rem;padding:5px 12px;" onclick="endSession()">End Session</button>
+          <button class="btn btn-ghost" style="font-size:.8rem;padding:5px 12px;" onclick="clearEventMarkers()" title="Clear obstacle markers from map">🗑️ Markers</button>
+          <button class="btn btn-ghost" style="margin-left:4px;font-size:.8rem;padding:5px 12px;" onclick="endSession()">End Session</button>
         </div>
 
         <div id="chat-log"></div>
@@ -591,8 +592,10 @@ let pendingRouteStreets = null;   // string[] of street names from OSRM steps
 let wakeRecognition = null;
 let questionRecognition = null;
 let addressRecognition = null;
-let lastSources = [];          // raw nearby objects from the most recent /api/ask response
-let sessionCurrentTag = null;  // address tag for the active session
+let lastSources        = [];          // raw nearby objects from the most recent /api/ask response
+let allSessionSources  = [];          // accumulates all sources across this session
+let placedMarkerKeys   = new Set();   // "lat,lon,type" keys of already-placed markers
+let sessionCurrentTag  = null;        // address tag for the active session
 const ROUTE_KEY = id => 'ada_route_' + id;
 
 // ── AI consumption tracking (current session only) ──────────────────────────
@@ -716,26 +719,39 @@ function makeEventIcon(type) {
 }
 
 function placeEventMarkers(sources) {
-  // Clear previous event markers
-  sessionEventMarkers.forEach(m => m.remove());
-  sessionEventMarkers = [];
   if (!sessionMap || !sources || !sources.length) return;
-
   for (const obj of sources) {
     const lat = obj._lat, lon = obj._lon;
     if (lat == null || lon == null) continue;
-    const type    = obj.type || '';
-    const street  = obj.street || '';
-    const dist    = obj._distance_m != null ? obj._distance_m : null;
-    const distFmt = dist != null
+    const key = `${lat.toFixed(5)},${lon.toFixed(5)},${obj.type||''}`;
+    if (placedMarkerKeys.has(key)) continue;   // already on map
+    placedMarkerKeys.add(key);
+    const type     = obj.type || '';
+    const street   = obj.street || '';
+    const dist     = obj._distance_m != null ? obj._distance_m : null;
+    const distFmt  = dist != null
       ? (dist * 3.28084 < 1000 ? Math.round(dist * 3.28084) + ' ft' : (dist / 1609.34).toFixed(1) + ' mi')
       : '';
-    const label   = `${(type).replace(/_/g,' ')}${street ? '\n' + street : ''}${distFmt ? '\n' + distFmt + ' ahead' : ''}`;
-    const marker  = L.marker([lat, lon], { icon: makeEventIcon(type) })
+    const offTag   = obj._off_route ? '\n(off route)' : '';
+    const label    = `${(type).replace(/_/g,' ')}${street ? '\n' + street : ''}${distFmt ? '\n' + distFmt + ' ahead' : ''}${offTag}`;
+    const marker   = L.marker([lat, lon], { icon: makeEventIcon(type) })
       .bindTooltip(label, { permanent: false, direction: 'top', offset: [0, -8] })
       .addTo(sessionMap);
     sessionEventMarkers.push(marker);
+    allSessionSources.push(obj);
   }
+}
+
+function clearEventMarkers() {
+  sessionEventMarkers.forEach(m => m.remove());
+  sessionEventMarkers = [];
+  placedMarkerKeys.clear();
+}
+
+function showEventMarkers() {
+  // Re-display all accumulated sources (clears first to reset key set)
+  clearEventMarkers();
+  placeEventMarkers(allSessionSources);
 }
 
 function computeBearing(p1, p2) {
@@ -1101,6 +1117,8 @@ function activateSession(session) {
   currentSessionId      = session.id;
   currentMessages       = [];
   lastSources           = [];
+  allSessionSources     = [];
+  placedMarkerKeys      = new Set();
   const storedUsage     = loadAiUsageLocal(session.id);
   sessionAiCalls        = storedUsage?.calls         || 0;
   sessionInputTokens    = storedUsage?.input_tokens  || 0;
@@ -1172,6 +1190,8 @@ function endSession() {
   currentSessionId = null;
   if (sessionMap) { sessionMap.remove(); sessionMap = null; sessionMarker = null; }
   sessionEventMarkers = [];
+  allSessionSources   = [];
+  placedMarkerKeys    = new Set();
   showSplash();
   loadSessions();
 }
@@ -1247,6 +1267,31 @@ async function sendQuestion() {
     return;
   }
 
+  // Intercept marker control commands — handle locally without calling the API
+  const CLEAR_MARKERS_RE = /\b(clear|remove|hide|erase|delete)\b.{0,40}\b(marker|image|icon|obstacle|event|hazard)/i;
+  const SHOW_MARKERS_RE  = /\b(show|display|add|put|restore)\b.{0,40}\b(marker|image|icon|obstacle|event|hazard)/i;
+  if (CLEAR_MARKERS_RE.test(question)) {
+    clearEventMarkers();
+    const ts = new Date().toISOString();
+    const msg = 'Obstacle markers cleared from the map.';
+    appendMessage('assistant', msg, ts, true);
+    currentMessages.push({ role: 'assistant', content: msg, timestamp: ts });
+    saveChatLocal(currentSessionId, currentMessages);
+    return;
+  }
+  if (SHOW_MARKERS_RE.test(question)) {
+    showEventMarkers();
+    const ts  = new Date().toISOString();
+    const cnt = sessionEventMarkers.length;
+    const msg = cnt > 0
+      ? `Showing ${cnt} obstacle marker${cnt !== 1 ? 's' : ''} on the map.`
+      : 'No obstacle markers to show yet. Ask about road conditions first.';
+    appendMessage('assistant', msg, ts, true);
+    currentMessages.push({ role: 'assistant', content: msg, timestamp: ts });
+    saveChatLocal(currentSessionId, currentMessages);
+    return;
+  }
+
   document.getElementById('send-btn').disabled = true;
   showTyping();
 
@@ -1262,7 +1307,7 @@ async function sendQuestion() {
     const reply   = d.error ? 'Error: ' + d.error : d.answer;
     appendMessage('assistant', reply, replyTs, true);
     currentMessages.push({ role: 'assistant', content: reply, timestamp: replyTs });
-    if (d.sources) { lastSources = d.sources; placeEventMarkers(d.sources); }
+    if (d.sources) { lastSources = d.sources; placeEventMarkers(d.sources); }  // accumulates in allSessionSources
     if (d.usage) {
       const inTok  = d.usage.input_tokens  || 0;
       const outTok = d.usage.output_tokens || 0;

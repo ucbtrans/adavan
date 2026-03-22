@@ -13,7 +13,9 @@ from flask import Flask, jsonify, render_template, request, send_from_directory
 
 import sessions as sess
 from assistant import answer_question
-from location import find_nearby_objects, geocode_address, random_location
+from location import (find_nearby_objects, find_objects_on_street,
+                      find_street_suggestions, find_streets_mentioned,
+                      geocode_address, object_center, random_location)
 
 load_dotenv()
 
@@ -162,25 +164,52 @@ def api_ask():
         "bearing":           session["bearing"],
         "bearing_direction": session["bearing_direction"],
         "destination":       session.get("destination", ""),
+        "checked_streets":   [],   # filled in after off-route search
     }
 
     objects = get_objects()
 
+    route_streets_list: list | None = None
     route_json = session.get("route_coords_json", "")
     if route_json:
         try:
             import json as _json
             from location import find_objects_along_route
             route_streets_raw = session.get("route_streets_json", "")
-            route_streets = _json.loads(route_streets_raw) if route_streets_raw else None
+            route_streets_list = _json.loads(route_streets_raw) if route_streets_raw else None
             nearby = find_objects_along_route(
-                _json.loads(route_json), objects, route_streets=route_streets
+                _json.loads(route_json), objects, route_streets=route_streets_list
             )
         except Exception as exc:
             app.logger.warning("Route corridor filter failed: %s", exc)
             nearby = find_nearby_objects(location["lat"], location["lon"], objects)
     else:
         nearby = find_nearby_objects(location["lat"], location["lon"], objects)
+
+    # Merge objects from any off-route streets the user explicitly asked about
+    mentioned = find_streets_mentioned(question, route_streets_list)
+    if not mentioned:
+        suggestions = find_street_suggestions(question)
+        if suggestions:
+            location["street_suggestions"] = suggestions
+    if mentioned:
+        location["checked_streets"] = mentioned   # tell the AI which streets we looked up
+        route_set_lower = {s.lower() for s in route_streets_list} if route_streets_list else set()
+        nearby_keys: set = set()
+        for obj in nearby:
+            olat, olon = object_center(obj)
+            if olat is not None:
+                nearby_keys.add((obj.get("type"), round(olat, 5), round(olon, 5)))
+        for street in mentioned:
+            is_on_route = street.lower() in route_set_lower
+            for obj in find_objects_on_street(street, objects):
+                olat, olon = object_center(obj)
+                key = (obj.get("type"), round(olat or 0, 5), round(olon or 0, 5))
+                if key not in nearby_keys:
+                    # Only tag as off-route if the street isn't part of the planned route
+                    tagged = {**obj} if is_on_route else {**obj, "_off_route": True}
+                    nearby.append(tagged)
+                    nearby_keys.add(key)
 
     history       = sess.get_history(session_id)
 
@@ -190,7 +219,6 @@ def api_ask():
     sess.add_message(session_id, "assistant", answer)
 
     # Attach computed center coords to each source so the map can place markers
-    from location import object_center
     sources_with_coords = []
     for obj in nearby:
         olat, olon = object_center(obj)

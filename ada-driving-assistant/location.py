@@ -294,6 +294,121 @@ def find_objects_along_route(route_coords: list,
     return result
 
 
+# ── Street search ─────────────────────────────────────────────────────────────
+
+def find_streets_mentioned(question: str,
+                            route_streets: list | None = None) -> list[str]:
+    """
+    Return canonical street names (from city_streets.json) that appear in the
+    question.  Includes streets that are on the route so that explicit user
+    questions always trigger a fresh lookup (deduplication happens upstream).
+    Uses substring matching so "Ashby Avenue" matches stored name "Ashby Ave".
+    """
+    try:
+        with open(_streets_path()) as f:
+            data = json.load(f)
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("find_streets_mentioned: could not load streets: %s", exc)
+        return []
+
+    q_lower = question.lower()
+    seen: dict[str, str] = {}   # lower-name → canonical name
+
+    for street in data.get("streets", []):
+        name = street.get("name", "").strip()
+        if not name or name.startswith("Unnamed_"):
+            continue
+        nl = name.lower()
+        if nl in seen:
+            continue
+        if nl in q_lower:
+            seen[nl] = name
+
+    return list(seen.values())
+
+
+def find_street_suggestions(question: str) -> dict[str, str]:
+    """
+    For street-like phrases in the question that don't match any known street,
+    return {typed_phrase: closest_known_street} using fuzzy matching.
+    Only returns suggestions for phrases that look like street names
+    (contain a street-type suffix) but weren't found by exact matching.
+    """
+    import difflib
+    import re
+
+    _SUFFIXES = {
+        'avenue', 'ave', 'street', 'st', 'drive', 'dr', 'boulevard', 'blvd',
+        'way', 'road', 'rd', 'lane', 'ln', 'court', 'ct', 'place', 'pl',
+        'terrace', 'ter', 'circle', 'cir', 'run', 'loop', 'path', 'trail', 'row',
+    }
+
+    try:
+        with open(_streets_path()) as f:
+            data = json.load(f)
+    except Exception:
+        return {}
+
+    known       = [s["name"] for s in data.get("streets", [])
+                   if not s["name"].startswith("Unnamed_")]
+    known_lower = [k.lower() for k in known]
+    q_lower     = question.lower()
+
+    # Streets already matched exactly — no suggestion needed
+    exact_matched = {k.lower() for k in known if k.lower() in q_lower}
+
+    # Tokenise the question; for each suffix token, build 1-word and 2-word candidates
+    words = re.findall(r"[\w']+", q_lower)
+    candidates: set[str] = set()
+    for i, word in enumerate(words):
+        clean = word.rstrip('.')
+        if clean in _SUFFIXES:
+            if i >= 1:
+                candidates.add(' '.join(words[i - 1:i + 1]))   # 1 word + suffix
+            if i >= 2:
+                candidates.add(' '.join(words[i - 2:i + 1]))   # 2 words + suffix
+
+    # raw: phrase → canonical
+    raw: dict[str, str] = {}
+    for phrase in candidates:
+        if phrase in exact_matched:
+            continue
+        # Skip if the candidate contains a known exact match as a substring
+        if any(em in phrase for em in exact_matched):
+            continue
+        close = difflib.get_close_matches(phrase, known_lower, n=1, cutoff=0.72)
+        if close:
+            canonical = known[known_lower.index(close[0])]
+            raw[phrase] = canonical
+
+    # Deduplicate: for each canonical keep only the shortest candidate phrase
+    best: dict[str, str] = {}  # canonical → best phrase
+    for phrase, canonical in raw.items():
+        if canonical not in best or len(phrase) < len(best[canonical]):
+            best[canonical] = phrase
+
+    return {phrase: canonical for canonical, phrase in best.items()}
+
+
+def find_objects_on_street(street_name: str, objects: list[dict]) -> list[dict]:
+    """Return currently-active objects whose street field matches street_name (case-insensitive)."""
+    now = datetime.now(timezone.utc)
+    name_lower = street_name.lower()
+    result = []
+    for obj in objects:
+        try:
+            if datetime.fromisoformat(obj["active_at"])   > now:
+                continue
+            if datetime.fromisoformat(obj["inactive_at"]) < now:
+                continue
+        except Exception:
+            continue
+        if obj.get("street", "").lower() == name_lower:
+            result.append(obj)
+    return result
+
+
 # ── Nearby search ────────────────────────────────────────────────────────────
 
 def find_nearby_objects(lat: float, lon: float,

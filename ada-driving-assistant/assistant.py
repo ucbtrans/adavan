@@ -99,13 +99,20 @@ _QA_SYSTEM = """You are ADA, an AI driving assistant for Berkeley, CA.
 The user is a driver asking about road conditions along their planned route.
 
 Guidelines:
-- Answer ONLY based on the events listed in the context. These have already been
-  pre-filtered to the driver's route — do not mention, infer, or invent anything
-  about streets not listed.
-- Only discuss obstacles or conditions that are AHEAD of the driver (positive
-  distance along the route). Ignore anything the driver has already passed.
-- If the user explicitly asks about a specific street by name, check if it appears
-  in the context. If not, say you have no data for that street on this route.
+- Answer ONLY based on the events listed in the context. Do not mention, infer,
+  or invent anything about streets not listed.
+- For on-route events: only discuss obstacles that are AHEAD of the driver
+  (positive distance along the route). Ignore anything the driver has already passed.
+- For off-route events (labeled "Off-route events"): these were fetched because the
+  user explicitly asked about a specific street. Answer about them but clearly note
+  they are off the planned route.
+- If a street appears under "Streets checked but no current events found", tell the
+  user that street was checked and is currently clear — no active events.
+- If the context contains a "Possible spelling correction" note, tell the user the
+  street name wasn't recognised and ask if they meant the suggested street. Do not
+  make up any data about the unrecognised name.
+- If the user asks about a street that appears in none of the sections and no
+  spelling suggestion exists, say you have no data for that street.
 - Be concise — the user is driving. Lead with the most important hazard first.
 - Include street name, distance, and hazard type when available.
 - If there are no hazards, say so clearly and briefly.
@@ -134,12 +141,39 @@ def _build_context(location: dict, nearby: list[dict]) -> str:
     else:
         scope_label = "within 500m"
 
-    if nearby:
-        lines.append(f"Active traffic events {scope_label} ({len(nearby)} total):")
-        for obj in nearby:
+    route_events     = [o for o in nearby if not o.get("_off_route")]
+    off_route_events = [o for o in nearby if     o.get("_off_route")]
+
+    if route_events:
+        lines.append(f"Active traffic events {scope_label} ({len(route_events)} total):")
+        for obj in route_events:
             lines.append(_obj_summary(obj))
     else:
         lines.append(f"No active traffic events {scope_label}.")
+
+    if off_route_events:
+        lines.append("")
+        lines.append(f"Off-route events (user asked about specific streets,"
+                     f" {len(off_route_events)} total):")
+        for obj in off_route_events:
+            lines.append(_obj_summary(obj))
+
+    # Streets that were looked up but had no active events
+    checked       = location.get("checked_streets", [])
+    found_streets = {o.get("street", "").lower() for o in off_route_events}
+    empty_streets = [s for s in checked if s.lower() not in found_streets]
+    if empty_streets:
+        lines.append("")
+        lines.append("Streets checked but no current events found: "
+                     + ", ".join(empty_streets))
+
+    # Fuzzy spelling suggestions for unrecognised street names
+    suggestions = location.get("street_suggestions", {})
+    if suggestions:
+        lines.append("")
+        for phrase, canonical in suggestions.items():
+            lines.append(f"Possible spelling correction: '{phrase}' not found"
+                         f" — did the user mean '{canonical}'?")
 
     return "\n".join(lines)
 
