@@ -942,7 +942,7 @@ function drawPreviewRoute(coords, oLat, oLon, dLat, dLon) {
   if (previewRouteLayer) { previewRouteLayer.remove(); previewRouteLayer = null; }
   if (previewDestMarker) { previewDestMarker.remove(); previewDestMarker = null; }
 
-  previewRouteLayer = L.polyline(latLngs, { color: '#58a6ff', weight: 4, opacity: 0.85 }).addTo(previewMap);
+  previewRouteLayer = L.polyline(latLngs, { color: '#1a56b0', weight: 5, opacity: 0.85 }).addTo(previewMap);
   const bearing = pendingBearing !== null ? pendingBearing : 0;
   previewMarker     = L.marker([oLat, oLon], { icon: makeHeadingIcon(bearing) }).addTo(previewMap);
   previewDestMarker = L.marker([dLat, dLon], { icon: makeDestIcon() }).addTo(previewMap);
@@ -1094,7 +1094,7 @@ function activateSession(session) {
       const latLngs = coords.map(c => [c[1], c[0]]);
       if (sessionRouteLayer) { sessionRouteLayer.remove(); sessionRouteLayer = null; }
       if (sessionDestMarker) { sessionDestMarker.remove(); sessionDestMarker = null; }
-      sessionRouteLayer = L.polyline(latLngs, { color: '#58a6ff', weight: 4, opacity: 0.8 }).addTo(sessionMap);
+      sessionRouteLayer = L.polyline(latLngs, { color: '#1a56b0', weight: 5, opacity: 0.8 }).addTo(sessionMap);
       if (session.dest_lat && session.dest_lon) {
         sessionDestMarker = L.marker([session.dest_lat, session.dest_lon], { icon: makeDestIcon() }).addTo(sessionMap);
       }
