@@ -105,11 +105,14 @@ def _build_context(location: dict, nearby: list[dict]) -> str:
     lat       = location.get("lat", "?")
     lon       = location.get("lon", "?")
 
+    destination = location.get("destination", "")
     lines = [
         f"Driver location: {address} (lat={lat}, lon={lon})",
         f"Heading: {direction} ({bearing} deg)",
-        "",
     ]
+    if destination:
+        lines.append(f"Destination: {destination}")
+    lines.append("")
 
     if nearby:
         lines.append(f"Active traffic events within 500m ({len(nearby)} total):")

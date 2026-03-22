@@ -165,6 +165,9 @@ aside h2 {
 .bearing-row input[type=range] { flex: 1; accent-color: var(--blue); }
 #bearing-display { min-width: 60px; font-size: .85rem; color: var(--text); }
 
+.route-field { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.route-field-label { font-size: .8rem; color: var(--muted); font-weight: 500; padding-left: 2px; }
+
 /* ── Session view ─────────────────────────────────────────────── */
 #session-view {
   display: none;
@@ -474,12 +477,24 @@ aside h2 {
 
     <!-- Location setup -->
     <div id="location-panel">
-      <h2>Where are you?</h2>
+      <h2>Plan Your Route</h2>
 
-      <div class="loc-input-row">
-        <input id="address-input" type="text" placeholder="Enter address (e.g. 2400 Telegraph Ave)" autocomplete="off" oninput="onManualAddressInput()"/>
-        <button class="btn btn-mic" id="addr-mic-btn" title="Speak address" onclick="startAddressSpeech()">🎤</button>
-        <button class="btn btn-secondary" onclick="suggestRandom()" title="Suggest random location">🎲</button>
+      <div class="route-field">
+        <div class="route-field-label">🔵 Origin</div>
+        <div class="loc-input-row">
+          <input id="origin-input" type="text" placeholder="Enter starting address (e.g. 2400 Telegraph Ave)" autocomplete="off" oninput="onManualOriginInput()"/>
+          <button class="btn btn-mic" id="origin-mic-btn" title="Speak origin" onclick="startSpeechFor('origin-input','origin-mic-btn')">🎤</button>
+          <button class="btn btn-secondary" id="origin-rand-btn" onclick="suggestRandomOrigin()" title="Random origin">🎲</button>
+        </div>
+      </div>
+
+      <div class="route-field">
+        <div class="route-field-label">🔴 Destination <span style="color:var(--muted);font-weight:400">(optional)</span></div>
+        <div class="loc-input-row">
+          <input id="dest-input" type="text" placeholder="Enter destination address" autocomplete="off" oninput="onManualDestInput()"/>
+          <button class="btn btn-mic" id="dest-mic-btn" title="Speak destination" onclick="startSpeechFor('dest-input','dest-mic-btn')">🎤</button>
+          <button class="btn btn-secondary" id="dest-rand-btn" onclick="suggestRandomDest()" title="Random destination">🎲</button>
+        </div>
       </div>
 
       <!-- Heading: slider (manual), auto badge (one-way), or direction buttons (two-way) -->
@@ -496,6 +511,7 @@ aside h2 {
       <div id="location-preview-map"></div>
 
       <div style="display:flex;gap:10px;width:100%;">
+        <button class="btn btn-secondary" style="flex:1" id="show-route-btn" onclick="showRoute()">Show Route</button>
         <button class="btn btn-primary" style="flex:1" onclick="startSession()">Start Session</button>
         <button class="btn btn-ghost" onclick="showSplash()">Cancel</button>
       </div>
@@ -517,6 +533,7 @@ aside h2 {
           <div class="dot"></div>
           <span class="addr" id="session-addr">—</span>
           <span class="meta" id="session-heading">—</span>
+          <span class="meta" id="session-dest" style="display:none;">→ <span id="session-dest-addr"></span></span>
           <span class="meta" id="session-time" style="margin-left:auto;"></span>
           <button class="btn btn-ghost" style="margin-left:12px;font-size:.8rem;padding:5px 12px;" onclick="endSession()">End Session</button>
         </div>
@@ -569,11 +586,14 @@ const API_BASE = window.ADA_API_BASE || '';
 let currentSessionId = null;
 let pendingLat = null, pendingLon = null;
 let pendingBearing = null;
+let pendingDestLat = null, pendingDestLon = null, pendingDestAddress = null;
+let pendingRouteCoords = null;   // [[lon,lat],...] from OSRM, saved to localStorage on session start
 let wakeRecognition = null;
 let questionRecognition = null;
 let addressRecognition = null;
 let lastSources = [];          // raw nearby objects from the most recent /api/ask response
 let sessionCurrentTag = null;  // address tag for the active session
+const ROUTE_KEY = id => 'ada_route_' + id;
 
 // ── AI consumption tracking (current session only) ──────────────────────────
 let sessionAiCalls        = 0;
@@ -643,10 +663,14 @@ function clearChatLocal(sessionId) {
 let currentMessages = [];
 
 // ── Map state ────────────────────────────────────────────────────────────
-let sessionMap    = null;
-let sessionMarker = null;
-let previewMap    = null;
-let previewMarker = null;
+let sessionMap         = null;
+let sessionMarker      = null;
+let sessionRouteLayer  = null;
+let sessionDestMarker  = null;
+let previewMap         = null;
+let previewMarker      = null;
+let previewRouteLayer  = null;
+let previewDestMarker  = null;
 
 // ── Map helpers ──────────────────────────────────────────────────────────
 function makeHeadingIcon(bearing) {
@@ -656,6 +680,28 @@ function makeHeadingIcon(bearing) {
       transform="rotate(${bearing},18,18)"/>
   </svg>`;
   return L.divIcon({ html: svg, iconSize: [36,36], iconAnchor: [18,18], className: '' });
+}
+
+function makeDestIcon() {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36">
+    <path d="M14 0C6.27 0 0 6.27 0 14c0 9.33 14 22 14 22S28 23.33 28 14C28 6.27 21.73 0 14 0z" fill="#f85149"/>
+    <circle cx="14" cy="14" r="6" fill="white"/>
+  </svg>`;
+  return L.divIcon({ html: svg, iconSize: [28,36], iconAnchor: [14,36], className: '' });
+}
+
+function computeBearing(p1, p2) {
+  const toRad = d => d * Math.PI / 180;
+  const lat1 = toRad(p1.lat), lon1 = toRad(p1.lon);
+  const lat2 = toRad(p2.lat), lon2 = toRad(p2.lon);
+  const dlon = lon2 - lon1;
+  const x = Math.sin(dlon) * Math.cos(lat2);
+  const y = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dlon);
+  return Math.round((Math.atan2(x, y) * 180 / Math.PI + 360) % 360);
+}
+
+function bearingDir(b) {
+  return ["N","NE","E","SE","S","SW","W","NW"][Math.round(b/45)%8];
 }
 
 function initSessionMap(lat, lon, bearing) {
@@ -707,6 +753,10 @@ function showSplash()         { hide('location-panel'); hide('session-view'); sh
 function showLocationPanel()  {
   hide('splash'); hide('session-view'); show('location-panel');
   document.getElementById('location-preview-map').style.display = 'none';
+  pendingDestLat = null; pendingDestLon = null; pendingDestAddress = null;
+  pendingRouteCoords = null;
+  if (previewRouteLayer) { previewRouteLayer.remove(); previewRouteLayer = null; }
+  if (previewDestMarker) { previewDestMarker.remove(); previewDestMarker = null; }
 }
 function showSessionView()    { hide('splash'); hide('location-panel'); show('session-view'); }
 function show(id) { document.getElementById(id).style.display = 'flex'; }
@@ -765,21 +815,32 @@ function selectHeadingOption(bearing, btn) {
   btn.style.color = 'var(--blue)';
 }
 
-function onManualAddressInput() {
+function onManualOriginInput() {
   pendingLat = null; pendingLon = null; pendingBearing = null;
+  pendingRouteCoords = null;
+  if (previewRouteLayer) { previewRouteLayer.remove(); previewRouteLayer = null; }
+  if (previewDestMarker) { previewDestMarker.remove(); previewDestMarker = null; }
   showHeadingSlider();
 }
 
+function onManualDestInput() {
+  pendingDestLat = null; pendingDestLon = null;
+  pendingDestAddress = document.getElementById('dest-input').value.trim() || null;
+  pendingRouteCoords = null;
+  if (previewRouteLayer) { previewRouteLayer.remove(); previewRouteLayer = null; }
+  if (previewDestMarker) { previewDestMarker.remove(); previewDestMarker = null; }
+}
+
 // ── Random location ──────────────────────────────────────────────────────
-async function suggestRandom() {
-  const btn = document.querySelector('[onclick="suggestRandom()"]');
+async function suggestRandomOrigin() {
+  const btn = document.getElementById('origin-rand-btn');
   btn.disabled = true; btn.textContent = '…';
   let locationData = null;
   try {
     const r = await fetch(API_BASE + '/api/location/random');
     const d = await r.json();
     if (d.error) { alert('Server error: ' + d.error); return; }
-    document.getElementById('address-input').value = d.address;
+    document.getElementById('origin-input').value = d.address;
     pendingLat = d.lat; pendingLon = d.lon;
     if (d.heading_auto) {
       showHeadingAuto(d.bearing, d.bearing_direction, 'one-way street');
@@ -793,13 +854,101 @@ async function suggestRandom() {
   } catch(e) { alert('Could not get random location: ' + e.message); }
   finally { btn.disabled = false; btn.textContent = '🎲'; }
 
-  // Map preview is separate — errors here don't block location loading
   if (locationData) {
     try {
       updateLocationPreview(locationData.lat, locationData.lon,
         pendingBearing !== null ? pendingBearing : locationData.bearing);
     } catch(e) { console.warn('Map preview error:', e); }
   }
+}
+
+async function suggestRandomDest() {
+  const btn = document.getElementById('dest-rand-btn');
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    const r = await fetch(API_BASE + '/api/location/random');
+    const d = await r.json();
+    if (d.error) { alert('Server error: ' + d.error); return; }
+    document.getElementById('dest-input').value = d.address;
+    pendingDestLat = d.lat; pendingDestLon = d.lon;
+    pendingDestAddress = d.address;
+  } catch(e) { alert('Could not get random destination: ' + e.message); }
+  finally { btn.disabled = false; btn.textContent = '🎲'; }
+}
+
+async function showRoute() {
+  const originAddr = document.getElementById('origin-input').value.trim();
+  const destAddr   = document.getElementById('dest-input').value.trim();
+  if (!originAddr) { alert('Please enter an origin address.'); return; }
+
+  const btn = document.getElementById('show-route-btn');
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    if (!pendingLat || !pendingLon) {
+      const g = await geocodeAddress(originAddr);
+      if (g.error) { alert('Could not find origin: ' + originAddr); return; }
+      pendingLat = g.lat; pendingLon = g.lon;
+    }
+
+    if (destAddr && (!pendingDestLat || !pendingDestLon)) {
+      const g = await geocodeAddress(destAddr);
+      if (g.error) { alert('Could not find destination: ' + destAddr); return; }
+      pendingDestLat = g.lat; pendingDestLon = g.lon;
+      pendingDestAddress = destAddr;
+    }
+
+    if (destAddr && pendingDestLat) {
+      const coords = await fetchOsrmRoute(pendingLat, pendingLon, pendingDestLat, pendingDestLon);
+      if (!coords) { alert('Could not calculate a route between those addresses.'); return; }
+      pendingRouteCoords = coords;
+      drawPreviewRoute(coords, pendingLat, pendingLon, pendingDestLat, pendingDestLon);
+      // Auto-set heading from first route segment
+      if (coords.length >= 2) {
+        const b = computeBearing(
+          { lat: coords[0][1], lon: coords[0][0] },
+          { lat: coords[1][1], lon: coords[1][0] }
+        );
+        showHeadingAuto(b, bearingDir(b), 'from route direction');
+      }
+    } else {
+      updateLocationPreview(pendingLat, pendingLon,
+        pendingBearing !== null ? pendingBearing : 0);
+    }
+  } catch(e) { alert('Route error: ' + e.message); }
+  finally { btn.disabled = false; btn.textContent = 'Show Route'; }
+}
+
+async function fetchOsrmRoute(lat1, lon1, lat2, lon2) {
+  const url = `https://router.project-osrm.org/route/v1/driving/${lon1},${lat1};${lon2},${lat2}?overview=full&geometries=geojson`;
+  const r = await fetch(url);
+  const d = await r.json();
+  if (d.code !== 'Ok' || !d.routes?.length) return null;
+  return d.routes[0].geometry.coordinates; // [[lon, lat], ...]
+}
+
+function drawPreviewRoute(coords, oLat, oLon, dLat, dLon) {
+  const el = document.getElementById('location-preview-map');
+  el.style.display = 'block';
+  const latLngs = coords.map(c => [c[1], c[0]]);
+
+  if (!previewMap) {
+    previewMap = L.map('location-preview-map', {
+      zoomControl: true, attributionControl: false,
+      dragging: true, scrollWheelZoom: true, doubleClickZoom: true
+    });
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(previewMap);
+  }
+
+  if (previewMarker)     { previewMarker.remove();     previewMarker = null; }
+  if (previewRouteLayer) { previewRouteLayer.remove(); previewRouteLayer = null; }
+  if (previewDestMarker) { previewDestMarker.remove(); previewDestMarker = null; }
+
+  previewRouteLayer = L.polyline(latLngs, { color: '#58a6ff', weight: 4, opacity: 0.85 }).addTo(previewMap);
+  const bearing = pendingBearing !== null ? pendingBearing : 0;
+  previewMarker     = L.marker([oLat, oLon], { icon: makeHeadingIcon(bearing) }).addTo(previewMap);
+  previewDestMarker = L.marker([dLat, dLon], { icon: makeDestIcon() }).addTo(previewMap);
+  previewMap.fitBounds(previewRouteLayer.getBounds(), { padding: [20, 20] });
+  setTimeout(() => previewMap.invalidateSize(), 100);
 }
 
 // ── Geocode typed address ────────────────────────────────────────────────
@@ -814,12 +963,12 @@ async function geocodeAddress(address) {
 
 // ── Start session ────────────────────────────────────────────────────────
 async function startSession() {
-  const address = document.getElementById('address-input').value.trim();
+  const address = document.getElementById('origin-input').value.trim();
   const bearing = pendingBearing !== null
     ? pendingBearing
     : parseInt(document.getElementById('bearing-slider').value);
 
-  if (!address) { alert('Please enter or speak an address.'); return; }
+  if (!address) { alert('Please enter or speak an origin address.'); return; }
 
   let lat = pendingLat, lon = pendingLon;
 
@@ -829,13 +978,23 @@ async function startSession() {
     lat = geo.lat; lon = geo.lon;
   }
 
+  const body = { address, lat, lon, bearing };
+  if (pendingDestAddress) body.destination  = pendingDestAddress;
+  if (pendingDestLat)     body.dest_lat     = pendingDestLat;
+  if (pendingDestLon)     body.dest_lon     = pendingDestLon;
+
   const r = await fetch(API_BASE + '/api/session/new', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({address, lat, lon, bearing})
+    body: JSON.stringify(body)
   });
   const session = await r.json();
   if (session.error) { alert(session.error); return; }
+
+  // Persist route coords so session map can draw it
+  if (pendingRouteCoords) {
+    try { localStorage.setItem(ROUTE_KEY(session.id), JSON.stringify(pendingRouteCoords)); } catch(e) {}
+  }
 
   activateSession(session);
 }
@@ -852,11 +1011,22 @@ function activateSession(session) {
   sessionStartedAt      = session.started_at || new Date().toISOString();
   sessionCurrentTag     = session.address || null;
   pendingLat = null; pendingLon = null; pendingBearing = null;
+  pendingDestLat = null; pendingDestLon = null; pendingDestAddress = null;
+  pendingRouteCoords = null;
   showHeadingSlider();
 
   document.getElementById('session-addr').textContent    = session.address;
   document.getElementById('session-heading').textContent = 'Heading ' + bearingLabel(session.bearing);
   document.getElementById('session-time').textContent    = 'Started ' + fmtTime(session.started_at);
+
+  const destEl     = document.getElementById('session-dest');
+  const destAddrEl = document.getElementById('session-dest-addr');
+  if (session.destination) {
+    destAddrEl.textContent = session.destination;
+    destEl.style.display = 'inline';
+  } else {
+    destEl.style.display = 'none';
+  }
 
   // Prefer localStorage (most up-to-date), fall back to server messages
   const localMsgs  = loadChatLocal(session.id);
@@ -880,7 +1050,21 @@ function activateSession(session) {
   }
 
   showSessionView();
-  try { initSessionMap(session.lat, session.lon, session.bearing); }
+  try {
+    initSessionMap(session.lat, session.lon, session.bearing);
+    const savedRoute = localStorage.getItem(ROUTE_KEY(session.id));
+    if (savedRoute) {
+      const coords = JSON.parse(savedRoute);
+      const latLngs = coords.map(c => [c[1], c[0]]);
+      if (sessionRouteLayer) { sessionRouteLayer.remove(); sessionRouteLayer = null; }
+      if (sessionDestMarker) { sessionDestMarker.remove(); sessionDestMarker = null; }
+      sessionRouteLayer = L.polyline(latLngs, { color: '#58a6ff', weight: 4, opacity: 0.8 }).addTo(sessionMap);
+      if (session.dest_lat && session.dest_lon) {
+        sessionDestMarker = L.marker([session.dest_lat, session.dest_lon], { icon: makeDestIcon() }).addTo(sessionMap);
+      }
+      sessionMap.fitBounds(sessionRouteLayer.getBounds(), { padding: [20, 20] });
+    }
+  }
   catch(e) { console.error('Map init failed:', e); }
   loadSessions();
   document.getElementById('question-input').focus();
@@ -1110,12 +1294,12 @@ function initWakeWord() {
 }
 
 // ── Voice: address input ────────────────────────────────────────────────────
-function startAddressSpeech() {
+function startSpeechFor(inputId, btnId) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) return;
   if (addressRecognition) { try { addressRecognition.stop(); } catch(e){} }
 
-  const btn = document.getElementById('addr-mic-btn');
+  const btn = document.getElementById(btnId);
   btn.classList.add('recording'); btn.textContent = '⏹';
 
   addressRecognition = new SR();
@@ -1123,14 +1307,17 @@ function startAddressSpeech() {
 
   addressRecognition.onresult = (e) => {
     const t = e.results[0][0].transcript;
-    document.getElementById('address-input').value = t;
-    pendingLat = null; pendingLon = null;
+    document.getElementById(inputId).value = t;
+    if (inputId === 'origin-input') { pendingLat = null; pendingLon = null; }
+    else { pendingDestLat = null; pendingDestLon = null; pendingDestAddress = null; }
   };
   addressRecognition.onend = () => {
     btn.classList.remove('recording'); btn.textContent = '🎤';
   };
   addressRecognition.start();
 }
+// Backward-compat alias (used by wake-word handler)
+function startAddressSpeech() { startSpeechFor('origin-input', 'origin-mic-btn'); }
 
 // ── Voice: question input ───────────────────────────────────────────────────
 function startQuestionSpeech() {

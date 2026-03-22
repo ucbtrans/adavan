@@ -99,6 +99,9 @@ def api_session_new():
     from location import bearing_to_direction
     bearing_dir = bearing_to_direction(bearing)
     street      = data.get("street", "")
+    destination = data.get("destination", "")
+    dest_lat    = data.get("dest_lat")
+    dest_lon    = data.get("dest_lon")
 
     # Deduplicate: reuse an existing session with the same address + bearing
     existing = sess.find_session(address, bearing)
@@ -107,7 +110,10 @@ def api_session_new():
         return jsonify(sess.get_session(existing["id"]))
 
     session = sess.create_session(address, float(lat), float(lon),
-                                  bearing, bearing_dir, street)
+                                  bearing, bearing_dir, street,
+                                  destination,
+                                  float(dest_lat) if dest_lat is not None else None,
+                                  float(dest_lon) if dest_lon is not None else None)
     return jsonify(session)
 
 
@@ -151,6 +157,7 @@ def api_ask():
         "lon":               session["lon"],
         "bearing":           session["bearing"],
         "bearing_direction": session["bearing_direction"],
+        "destination":       session.get("destination", ""),
     }
 
     objects       = get_objects()

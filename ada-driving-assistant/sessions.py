@@ -69,7 +69,10 @@ def _dynamo_to_session(item: dict) -> dict:
 
 def create_session(address: str, lat: float, lon: float,
                    bearing: int, bearing_direction: str,
-                   street: str = "") -> dict:
+                   street: str = "",
+                   destination: str = "",
+                   dest_lat: float | None = None,
+                   dest_lon: float | None = None) -> dict:
     now = datetime.now(timezone.utc).isoformat()
     session = {
         "id":                str(uuid.uuid4()),
@@ -81,6 +84,9 @@ def create_session(address: str, lat: float, lon: float,
         "bearing":           bearing,
         "bearing_direction": bearing_direction,
         "street":            street,
+        "destination":       destination,
+        "dest_lat":          dest_lat,
+        "dest_lon":          dest_lon,
         "messages":          [],
     }
 
@@ -89,6 +95,10 @@ def create_session(address: str, lat: float, lon: float,
         item = dict(session, ttl=_ttl_timestamp())
         item["lat"] = Decimal(str(lat))
         item["lon"] = Decimal(str(lon))
+        if dest_lat is not None:
+            item["dest_lat"] = Decimal(str(dest_lat))
+        if dest_lon is not None:
+            item["dest_lon"] = Decimal(str(dest_lon))
         _table().put_item(Item=item)
         # Enforce MAX_SESSIONS: delete oldest if over limit
         _enforce_max_sessions_dynamo()
@@ -180,6 +190,9 @@ def list_sessions() -> list[dict]:
             "bearing":           s["bearing"],
             "bearing_direction": s["bearing_direction"],
             "street":            s.get("street", ""),
+            "destination":       s.get("destination", ""),
+            "dest_lat":          s.get("dest_lat"),
+            "dest_lon":          s.get("dest_lon"),
             "message_count":     len(s.get("messages", [])),
         }
         for s in sessions
