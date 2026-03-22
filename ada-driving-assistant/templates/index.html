@@ -1280,16 +1280,18 @@ async function sendQuestion() {
     return;
   }
   if (SHOW_MARKERS_RE.test(question)) {
-    showEventMarkers();
-    const ts  = new Date().toISOString();
-    const cnt = sessionEventMarkers.length;
-    const msg = cnt > 0
-      ? `Showing ${cnt} obstacle marker${cnt !== 1 ? 's' : ''} on the map.`
-      : 'No obstacle markers to show yet. Ask about road conditions first.';
-    appendMessage('assistant', msg, ts, true);
-    currentMessages.push({ role: 'assistant', content: msg, timestamp: ts });
-    saveChatLocal(currentSessionId, currentMessages);
-    return;
+    if (sessionEventMarkers.length > 0) {
+      showEventMarkers();
+      const ts  = new Date().toISOString();
+      const cnt = sessionEventMarkers.length;
+      const msg = `Showing ${cnt} obstacle marker${cnt !== 1 ? 's' : ''} on the map.`;
+      appendMessage('assistant', msg, ts, true);
+      currentMessages.push({ role: 'assistant', content: msg, timestamp: ts });
+      saveChatLocal(currentSessionId, currentMessages);
+      return;
+    }
+    // No markers yet — treat as a request for route conditions
+    question = 'What are the road conditions and obstacles along my route?';
   }
 
   document.getElementById('send-btn').disabled = true;
