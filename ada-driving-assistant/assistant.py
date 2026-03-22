@@ -22,7 +22,7 @@ def _obj_summary(obj: dict) -> str:
     t    = obj.get("type", "unknown").replace("_", " ")
     dist = obj.get("_distance_m")
     st   = obj.get("street", "")
-    dist_str = f" ({dist}m away)" if dist is not None else ""
+    dist_str = f" ({dist}m ahead)" if dist is not None else ""
     street_str = f" on {st}" if st else ""
 
     extras = []

@@ -211,25 +211,35 @@ def find_objects_along_route(route_coords: list,
                               corridor_m: float = 40,
                               route_streets: list | None = None) -> list[dict]:
     """
-    Return active objects that are on the route.
+    Return active objects that are on the route, sorted by distance from origin.
 
-    Inclusion logic (both conditions must hold):
-      1. The object's street is in route_streets (if provided), OR the object
-         has no street field and is within corridor_m metres of the polyline.
-      2. The object is within max(corridor_m, 200) metres of the polyline
-         (guards against matching a street name far off the actual route segment).
+    _distance_m is set to the along-route distance from the origin to the
+    closest point on the polyline — NOT the perpendicular corridor distance.
+    This ensures objects are ordered and labelled from origin → destination.
+
+    Inclusion logic:
+      1. Object's street is in route_streets (if provided), OR object has no
+         street field and is within corridor_m of the polyline.
+      2. Closest point on polyline is within max(corridor_m, 200) m of object.
 
     Args:
         route_coords:   [[lon, lat], ...] as returned by OSRM.
         objects:        Full city objects list.
         corridor_m:     Tight corridor for unnamed objects (default 40 m).
-        route_streets:  Street names from OSRM steps; if provided, named objects
-                        must be on one of these streets to be included.
+        route_streets:  Street names from OSRM steps.
     """
-    now           = datetime.now(timezone.utc)
-    street_set    = {s.lower() for s in route_streets} if route_streets else None
-    max_dist      = max(corridor_m, 200)   # upper bound even for named streets
-    result        = []
+    now        = datetime.now(timezone.utc)
+    street_set = {s.lower() for s in route_streets} if route_streets else None
+    max_dist   = max(corridor_m, 200)
+
+    # Precompute cumulative along-route distances for each vertex
+    cum_dist = [0.0]
+    for i in range(len(route_coords) - 1):
+        lon1, lat1 = route_coords[i]
+        lon2, lat2 = route_coords[i + 1]
+        cum_dist.append(cum_dist[-1] + haversine_m(lat1, lon1, lat2, lon2))
+
+    result = []
 
     for obj in objects:
         try:
@@ -244,33 +254,41 @@ def find_objects_along_route(route_coords: list,
         if olat is None:
             continue
 
-        # Compute minimum distance to the route polyline
-        min_dist = float("inf")
+        # Find the closest segment; track both perpendicular and along-route distances
+        min_perp  = float("inf")
+        along_at_min = 0.0
+
         for i in range(len(route_coords) - 1):
             lon1, lat1 = route_coords[i]
             lon2, lat2 = route_coords[i + 1]
-            d = _point_to_segment_dist_m(olat, olon, lat1, lon1, lat2, lon2)
-            if d < min_dist:
-                min_dist = d
-            if min_dist <= corridor_m:
-                break   # tight enough — no need to check further
 
-        if min_dist > max_dist:
-            continue    # too far from route regardless of street name
+            dx = lon2 - lon1
+            dy = lat2 - lat1
+            if dx == 0 and dy == 0:
+                t = 0.0
+            else:
+                t = ((olon - lon1) * dx + (olat - lat1) * dy) / (dx * dx + dy * dy)
+                t = max(0.0, min(1.0, t))
+
+            perp = haversine_m(olat, olon, lat1 + t * dy, lon1 + t * dx)
+            if perp < min_perp:
+                min_perp = perp
+                seg_len  = haversine_m(lat1, lon1, lat2, lon2)
+                along_at_min = cum_dist[i] + t * seg_len
+
+        if min_perp > max_dist:
+            continue
 
         obj_street = obj.get("street", "").lower()
 
         if street_set:
-            # Include only if the object is on a named route street,
-            # OR has no street field and is within the tight corridor.
             on_route = (obj_street and obj_street in street_set) or \
-                       (not obj_street and min_dist <= corridor_m)
+                       (not obj_street and min_perp <= corridor_m)
         else:
-            # No street names available — use tight corridor only
-            on_route = min_dist <= corridor_m
+            on_route = min_perp <= corridor_m
 
         if on_route:
-            result.append({**obj, "_distance_m": round(min_dist)})
+            result.append({**obj, "_distance_m": round(along_at_min)})
 
     result.sort(key=lambda x: x["_distance_m"])
     return result
