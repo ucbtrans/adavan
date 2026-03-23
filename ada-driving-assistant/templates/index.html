@@ -1250,7 +1250,7 @@ function appendSourceBlock(sources) {
 // ── Q&A ────────────────────────────────────────────────────────────────────
 async function sendQuestion() {
   const input = document.getElementById('question-input');
-  const question = input.value.trim();
+  let question = input.value.trim();
   if (!question || !currentSessionId) return;
 
   input.value = '';
