@@ -117,7 +117,18 @@ Guidelines:
 - Include street name, distance, and hazard type when available.
 - If there are no hazards, say so clearly and briefly.
 - Never make up events not listed in the context.
-- Use natural, spoken language."""
+- Use natural, spoken language.
+- For parking questions: if a "Curb parking" section appears in the context, use
+  only those figures. Report the best chance to find a curb spot and name the street.
+  Non-colored curb figures vary by street type and time of day.
+- For blue curb questions: only report blue curb information if a "Blue curb" section
+  appears in the context. Blue curbs are 50% occupied at all times. Do not mention
+  blue curbs unless the user explicitly asked about them.
+- If the context contains a "Cross street needed" note, report the best parking
+  availability found on that street, then ask the user to name a cross street or
+  nearby intersection so you can give more precise block-level information.
+- "Streets checked but no current events found" refers to TRAFFIC events only,
+  never to parking availability. Do not use it to answer parking questions."""
 
 
 def _build_context(location: dict, nearby: list[dict]) -> str:
@@ -174,6 +185,45 @@ def _build_context(location: dict, nearby: list[dict]) -> str:
         for phrase, canonical in suggestions.items():
             lines.append(f"Possible spelling correction: '{phrase}' not found"
                          f" — did the user mean '{canonical}'?")
+
+    # Curb parking simulation (non-colored curbs only)
+    parking = location.get("parking")
+    if parking:
+        anchor    = parking.get("anchor_label", "requested area")
+        time_lbl  = "daytime" if parking.get("daytime", True) else "nighttime"
+
+        # Non-colored curb section (skip if no regular blocks found)
+        if parking.get("blocks"):
+            lines.append("")
+            lines.append(f"Curb parking near {anchor}"
+                         f" (non-colored curbs, simulated, {time_lbl}):")
+            lines.append(f"  Best chance to find a spot: {parking['best_chance']}%"
+                         f" on {parking['best_street']}")
+            for b in parking["blocks"]:
+                stype = b.get("street_type", "")
+                if stype == "motorway":
+                    lines.append(f"  - {b['street']}: no parking (motorway/ramp)")
+                else:
+                    lines.append(f"  - {b['street']} ({stype}): {b['chance']}% chance"
+                                 f" ({b['occupancy']}% occupied)")
+
+        if parking.get("ask_cross_street"):
+            lines.append(
+                f"Cross street needed: the user asked about parking on "
+                f"{parking['best_street']} without specifying a cross street. "
+                f"After reporting the best availability found above, ask the user "
+                f"which cross street or block they are interested in."
+            )
+
+        # Blue curb section — only present when user explicitly asked
+        blue = parking.get("blue_curb")
+        if blue:
+            lines.append("")
+            lines.append(f"Blue curb (disabled parking) near {anchor} (simulated):")
+            lines.append(f"  Occupancy: {blue['occupancy']}% — "
+                         f"chance to find a blue curb spot: {blue['chance']}%")
+            lines.append("  Blue curbs are reserved for vehicles with a disabled"
+                         " placard or license plate only.")
 
     return "\n".join(lines)
 

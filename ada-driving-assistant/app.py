@@ -16,6 +16,13 @@ from assistant import answer_question
 from location import (find_nearby_objects, find_objects_on_street,
                       find_street_suggestions, find_streets_mentioned,
                       geocode_address, object_center, random_location)
+from parking import get_parking_context
+
+_PARKING_KEYWORDS = {"park", "parking", "curb", "spot"}
+
+def _is_parking_question(q: str) -> bool:
+    q_lower = q.lower()
+    return any(kw in q_lower for kw in _PARKING_KEYWORDS)
 
 load_dotenv()
 
@@ -167,6 +174,18 @@ def api_ask():
         "checked_streets":   [],   # filled in after off-route search
     }
 
+    # Parking simulation — only computed when the question is about parking
+    if _is_parking_question(question):
+        parking = get_parking_context(
+            question,
+            dest_lat=session.get("dest_lat"),
+            dest_lon=session.get("dest_lon"),
+            fallback_lat=session["lat"],
+            fallback_lon=session["lon"],
+        )
+        if parking:
+            location["parking"] = parking
+
     objects = get_objects()
 
     route_streets_list: list | None = None
@@ -211,7 +230,7 @@ def api_ask():
                     nearby.append(tagged)
                     nearby_keys.add(key)
 
-    history       = sess.get_history(session_id)
+    history       = sess.get_history(session_id, session=session)
 
     answer, usage = answer_question(question, location, nearby, history)
 
@@ -231,20 +250,23 @@ def api_ask():
 # -- Consumption ---------------------------------------------------------------
 
 _LAMBDA_FUNCTIONS = [
-    {"name": "ada-api",                       "memory_mb": 512},
-    {"name": "ada-simulation",                "memory_mb": 512},
-    {"name": "ada-driving-assistant-simulator","memory_mb": 256},
+    {"name": "ada-api",        "memory_mb": 512},
+    {"name": "ada-simulation", "memory_mb": 512},
 ]
 
+_DDB_TABLE = "ada-sessions"
 
-def _cw_metric_sum(cw, func_name: str, metric: str,
-                   start, end, period: int) -> float | None:
-    """Return the Sum of a CloudWatch Lambda metric over [start, end]."""
+
+def _cw_metric_sum(cw, resource_name: str, metric: str,
+                   start, end, period: int,
+                   namespace: str = "AWS/Lambda",
+                   dimension_name: str = "FunctionName") -> float | None:
+    """Return the Sum of a CloudWatch metric over [start, end]."""
     try:
         resp = cw.get_metric_statistics(
-            Namespace="AWS/Lambda",
+            Namespace=namespace,
             MetricName=metric,
-            Dimensions=[{"Name": "FunctionName", "Value": func_name}],
+            Dimensions=[{"Name": dimension_name, "Value": resource_name}],
             StartTime=start,
             EndTime=end,
             Period=period,
@@ -263,7 +285,7 @@ def api_consumption():
     import boto3
 
     session_start_str = request.args.get("session_start", "")
-    region = os.environ.get("AWS_DEFAULT_REGION", "us-west-1")
+    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION", "us-west-2")
 
     now = datetime.now(timezone.utc)
     try:
@@ -308,6 +330,26 @@ def api_consumption():
                 m: _cw_metric_sum(cw, fn, m, start_time, now, cw_period)
                 for m in ("Invocations", "Duration", "Errors")
             }
+
+    # DynamoDB metrics
+    result[_DDB_TABLE] = {"type": "dynamodb"}
+    for period_name, start_time in periods:
+        span = max(60.0, (now - start_time).total_seconds())
+        if span <= 3_600:
+            cw_period = 60
+        elif span <= 86_400:
+            cw_period = 300
+        elif span <= 604_800:
+            cw_period = 3_600
+        else:
+            cw_period = 86_400
+
+        result[_DDB_TABLE][period_name] = {
+            m: _cw_metric_sum(cw, _DDB_TABLE, m, start_time, now, cw_period,
+                              namespace="AWS/DynamoDB",
+                              dimension_name="TableName")
+            for m in ("ConsumedReadCapacityUnits", "ConsumedWriteCapacityUnits")
+        }
 
     return jsonify(result)
 

@@ -4,10 +4,12 @@
 # Prerequisites:
 #   - AWS CLI configured (aws configure)
 #   - AWS SAM CLI installed (https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html)
-#   - Docker running (SAM uses it to build in a Lambda-compatible environment)
 #
 # First run:  ./deploy.sh --guided   (prompts for parameters, saves samconfig.toml)
 # Subsequent: ./deploy.sh
+#
+# v1 bucket (ada-driving-assistant-web-<acct>) and CloudFront (d1v86oas7j7jis.cloudfront.net)
+# are preserved outside this stack. This script only manages the v2 bucket and CloudFront.
 
 set -euo pipefail
 
@@ -15,18 +17,38 @@ STACK_NAME="ada-driving-assistant"
 REGION="${AWS_DEFAULT_REGION:-us-west-2}"
 SAM_CONFIG="samconfig.toml"
 
+# v1 — already deployed, managed outside this stack
+V1_BUCKET="ada-driving-assistant-web-173479170210"
+V1_CF_DIST="E3UTZPP7B7X64F"
+V1_CF_URL="https://d1v86oas7j7jis.cloudfront.net"
+
+# Locate sam — works in Git Bash, WSL, and native Linux/Mac
+SAM=""
+if command -v sam &>/dev/null; then
+  SAM="sam"
+elif command -v cmd.exe &>/dev/null; then
+  # WSL: delegate to Windows cmd.exe which has SAM in its PATH
+  SAM="cmd.exe /c sam"
+else
+  echo "ERROR: sam CLI not found. Install from https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html"
+  exit 1
+fi
+echo "    Using SAM: $SAM"
+# shellcheck disable=SC2206
+SAM_CMD=($SAM)   # split into array so it works whether SAM is "sam" or "cmd.exe /c sam"
+
 echo "==> Building Lambda package..."
-sam build --use-container
+"${SAM_CMD[@]}" build
 
 echo "==> Deploying stack: $STACK_NAME"
 if [[ "${1:-}" == "--guided" ]] || [[ ! -f "$SAM_CONFIG" ]]; then
-  sam deploy \
+  "${SAM_CMD[@]}" deploy \
     --stack-name "$STACK_NAME" \
     --region "$REGION" \
     --capabilities CAPABILITY_IAM \
     --guided
 else
-  sam deploy \
+  "${SAM_CMD[@]}" deploy \
     --stack-name "$STACK_NAME" \
     --region "$REGION" \
     --capabilities CAPABILITY_IAM
@@ -39,64 +61,104 @@ API_URL=$(aws cloudformation describe-stacks \
   --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue" \
   --output text)
 
-WEB_BUCKET=$(aws cloudformation describe-stacks \
+WEB_BUCKET_V2=$(aws cloudformation describe-stacks \
   --stack-name "$STACK_NAME" \
   --region "$REGION" \
-  --query "Stacks[0].Outputs[?OutputKey=='WebBucketName'].OutputValue" \
+  --query "Stacks[0].Outputs[?OutputKey=='WebBucketNameV2'].OutputValue" \
   --output text)
 
-WEBSITE_URL=$(aws cloudformation describe-stacks \
-  --stack-name "$STACK_NAME" \
+echo "    API URL       : $API_URL"
+echo "    Web bucket v2 : $WEB_BUCKET_V2"
+
+echo "==> Syncing source files into package/ and rebuilding lambda.zip..."
+for f in app.py assistant.py detections_adapter.py fetch_streets.py \
+          lambda_function.py location.py objects.py parking.py \
+          sessions.py simulator.py; do
+  [[ -f "$f" ]] && cp "$f" "package/$f"
+done
+# zip from INSIDE package/ so files land at root (not package/app.py)
+(cd package && python -m zipfile -c ../lambda.zip .) 2>/dev/null || \
+(cd package && python3 -m zipfile -c ../lambda.zip .) || \
+(cd package && py -m zipfile -c ../lambda.zip .)
+echo "    lambda.zip: $(ls -lh lambda.zip | awk '{print $5}')"
+
+echo "==> Uploading Lambda code directly..."
+aws lambda update-function-code \
+  --function-name ada-api \
+  --zip-file fileb://lambda.zip \
   --region "$REGION" \
-  --query "Stacks[0].Outputs[?OutputKey=='WebsiteUrl'].OutputValue" \
-  --output text)
-
-echo "    API URL     : $API_URL"
-echo "    Web bucket  : $WEB_BUCKET"
-echo "    Website URL : $WEBSITE_URL"
+  --query "[FunctionName, LastModified]" \
+  --output text
 
 echo "==> Preparing static files for S3..."
 
-# Inject API_BASE into a copy of index.html (write locally to avoid /tmp path issues on Windows)
-python -c "
+# Use python3 if python is not available (WSL)
+PYTHON=$(command -v python || command -v python3)
+
+# v1: inject API_BASE only (no version label — preserve existing look)
+$PYTHON -c "
 api_url = '$API_URL'
 content = open('templates/index.html', encoding='utf-8').read()
 content = content.replace(\"window.ADA_API_BASE || ''\", \"'\" + api_url + \"'\")
 open('_deploy_index.html', 'w', encoding='utf-8').write(content)
 "
 
-echo "==> Uploading static files to s3://$WEB_BUCKET ..."
+# v2: same injection + v2.0 label in title and header
+$PYTHON -c "
+api_url = '$API_URL'
+content = open('templates/index.html', encoding='utf-8').read()
+content = content.replace(\"window.ADA_API_BASE || ''\", \"'\" + api_url + \"'\")
+content = content.replace('<title>ADA Driving Assistant</title>', '<title>ADA Driving Assistant v2.0</title>')
+content = content.replace('<h1>ADA <span>Driving Assistant</span></h1>', '<h1>ADA <span>Driving Assistant</span> <span style=\"font-size:0.7rem;color:var(--muted);font-weight:400;\">v2.0</span></h1>')
+open('_deploy_index_v2.html', 'w', encoding='utf-8').write(content)
+"
+
+echo "==> Uploading static files to s3://$V1_BUCKET (v1)..."
 aws s3 cp _deploy_index.html \
-  "s3://$WEB_BUCKET/index.html" \
+  "s3://$V1_BUCKET/index.html" \
   --content-type "text/html; charset=utf-8" \
   --cache-control "no-cache"
 
 aws s3 cp static/ada_logo.jpg \
-  "s3://$WEB_BUCKET/ada_logo.jpg" \
+  "s3://$V1_BUCKET/ada_logo.jpg" \
   --content-type "image/jpeg"
 
-rm -f _deploy_index.html
+echo "==> Uploading static files to s3://$WEB_BUCKET_V2 (v2)..."
+aws s3 cp _deploy_index_v2.html \
+  "s3://$WEB_BUCKET_V2/index.html" \
+  --content-type "text/html; charset=utf-8" \
+  --cache-control "no-cache"
 
-echo "==> Invalidating CloudFront cache..."
-CF_DIST=$(aws cloudfront list-distributions \
-  --query "DistributionList.Items[?Origins.Items[0].DomainName==\`${WEB_BUCKET}.s3-website-${REGION}.amazonaws.com\`].Id" \
+aws s3 cp static/ada_logo.jpg \
+  "s3://$WEB_BUCKET_V2/ada_logo.jpg" \
+  --content-type "image/jpeg"
+
+rm -f _deploy_index.html _deploy_index_v2.html
+
+echo "==> Invalidating CloudFront cache (v1)..."
+aws cloudfront create-invalidation --distribution-id "$V1_CF_DIST" --paths "/*"
+
+echo "==> Invalidating CloudFront cache (v2)..."
+CF_DIST_V2=$(aws cloudfront list-distributions \
+  --query "DistributionList.Items[?Origins.Items[0].DomainName==\`${WEB_BUCKET_V2}.s3-website-${REGION}.amazonaws.com\`].Id" \
   --output text)
-if [[ -n "$CF_DIST" ]]; then
-  aws cloudfront create-invalidation --distribution-id "$CF_DIST" --paths "/*"
-  echo "    Invalidation created for $CF_DIST"
+if [[ -n "$CF_DIST_V2" ]]; then
+  aws cloudfront create-invalidation --distribution-id "$CF_DIST_V2" --paths "/*"
+  echo "    Invalidation created for $CF_DIST_V2"
 else
-  echo "    (no CloudFront distribution found — skipping)"
+  echo "    (v2 CloudFront not found — skipping)"
 fi
 
-CF_URL=$(aws cloudformation describe-stacks \
+CF_URL_V2=$(aws cloudformation describe-stacks \
   --stack-name "$STACK_NAME" \
   --region "$REGION" \
-  --query "Stacks[0].Outputs[?OutputKey=='CloudFrontUrl'].OutputValue" \
+  --query "Stacks[0].Outputs[?OutputKey=='CloudFrontUrlV2'].OutputValue" \
   --output text 2>/dev/null || echo "")
 
 echo ""
 echo "=========================================="
 echo "  Deploy complete!"
-echo "  CloudFront : $CF_URL"
-echo "  API        : $API_URL"
+echo "  CloudFront v1 : $V1_CF_URL"
+echo "  CloudFront v2 : $CF_URL_V2"
+echo "  API           : $API_URL"
 echo "=========================================="

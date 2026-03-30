@@ -57,6 +57,12 @@ Resources:
             TableName: !Ref SessionsTable
         - S3ReadPolicy:
             BucketName: !Ref DataBucketName
+        - Statement:
+            - Effect: Allow
+              Action:
+                - cloudwatch:GetMetricStatistics
+                - cloudwatch:ListMetrics
+              Resource: "*"
       Events:
         ApiProxy:
           Type: HttpApi
@@ -106,11 +112,14 @@ Resources:
         AttributeName: ttl
         Enabled: true
 
-  # ── Web S3 bucket (static site: index.html + logo) ──────────────────────────
-  WebBucket:
+  # ── Web S3 bucket v2 (static site: index.html + logo) ───────────────────────
+  # NOTE: v1 bucket (ada-driving-assistant-web-<acct>) and its CloudFront
+  # distribution (d1v86oas7j7jis.cloudfront.net) were created by a previous
+  # stack and are preserved as-is outside this template.
+  WebBucketV2:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub ada-driving-assistant-web-${AWS::AccountId}
+      BucketName: !Sub ada-driving-assistant-web-v2-${AWS::AccountId}
       WebsiteConfiguration:
         IndexDocument: index.html
       PublicAccessBlockConfiguration:
@@ -119,37 +128,35 @@ Resources:
         IgnorePublicAcls:      false
         RestrictPublicBuckets: false
 
-  WebBucketPolicy:
+  WebBucketPolicyV2:
     Type: AWS::S3::BucketPolicy
     Properties:
-      Bucket: !Ref WebBucket
+      Bucket: !Ref WebBucketV2
       PolicyDocument:
         Statement:
           - Effect: Allow
             Principal: "*"
             Action: s3:GetObject
-            Resource: !Sub ${WebBucket.Arn}/*
+            Resource: !Sub ${WebBucketV2.Arn}/*
 
-  # ── CloudFront distribution (HTTPS for the web bucket) ──────────────────────
-  CloudFrontDistribution:
+  # ── CloudFront distribution v2 (HTTPS for the v2 web bucket) ────────────────
+  CloudFrontDistributionV2:
     Type: AWS::CloudFront::Distribution
     Properties:
       DistributionConfig:
         Enabled: true
         HttpVersion: http2
         DefaultRootObject: index.html
-        PriceClass: PriceClass_100   # US + Europe edge locations
+        PriceClass: PriceClass_100
         Origins:
-          - Id: S3WebsiteOrigin
-            # Use the S3 website endpoint (supports index.html redirect)
-            DomainName: !Sub ${WebBucket}.s3-website-${AWS::Region}.amazonaws.com
+          - Id: S3WebsiteOriginV2
+            DomainName: !Sub ${WebBucketV2}.s3-website-${AWS::Region}.amazonaws.com
             CustomOriginConfig:
               HTTPPort: 80
               OriginProtocolPolicy: http-only
         DefaultCacheBehavior:
-          TargetOriginId: S3WebsiteOrigin
+          TargetOriginId: S3WebsiteOriginV2
           ViewerProtocolPolicy: redirect-to-https
-          # Managed-CachingDisabled: always fetch fresh from origin
           CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
           AllowedMethods:  [GET, HEAD]
           CachedMethods:   [GET, HEAD]
@@ -161,20 +168,24 @@ Outputs:
     Export:
       Name: ADAApiUrl
 
-  WebsiteUrl:
-    Description: S3 static website URL
-    Value: !GetAtt WebBucket.WebsiteURL
-    Export:
-      Name: ADAWebsiteUrl
+  CloudFrontUrlV1:
+    Description: Existing v1 CloudFront URL (managed outside this stack)
+    Value: https://d1v86oas7j7jis.cloudfront.net
 
-  CloudFrontUrl:
-    Description: HTTPS CloudFront URL (use this to access the app)
-    Value: !Sub https://${CloudFrontDistribution.DomainName}
+  WebsiteUrlV2:
+    Description: S3 static website URL (v2)
+    Value: !GetAtt WebBucketV2.WebsiteURL
     Export:
-      Name: ADACloudFrontUrl
+      Name: ADAWebsiteUrlV2
 
-  WebBucketName:
-    Description: Web S3 bucket name
-    Value: !Ref WebBucket
+  CloudFrontUrlV2:
+    Description: HTTPS CloudFront URL for v2
+    Value: !Sub https://${CloudFrontDistributionV2.DomainName}
     Export:
-      Name: ADAWebBucket
+      Name: ADACloudFrontUrlV2
+
+  WebBucketNameV2:
+    Description: Web S3 bucket name (v2)
+    Value: !Ref WebBucketV2
+    Export:
+      Name: ADAWebBucketV2

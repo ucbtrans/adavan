@@ -220,8 +220,8 @@ def find_session(address: str, bearing: int) -> dict | None:
         return None
 
 
-def get_history(session_id: str) -> list[dict]:
-    s = get_session(session_id)
+def get_history(session_id: str, session: dict | None = None) -> list[dict]:
+    s = session if session is not None else get_session(session_id)
     if not s:
         return []
     return [{"role": m["role"], "content": m["content"]}

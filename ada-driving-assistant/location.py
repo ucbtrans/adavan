@@ -38,6 +38,21 @@ def _streets_path() -> str:
     )
 
 
+import time as _time
+_streets_cache: dict = {"data": None, "loaded_at": 0.0}
+_STREETS_CACHE_TTL = 300   # seconds — same TTL as the objects cache in app.py
+
+def _load_streets() -> dict:
+    """Return city_streets.json as a dict, cached in memory for 5 minutes."""
+    now = _time.time()
+    if (_streets_cache["data"] is None
+            or now - _streets_cache["loaded_at"] > _STREETS_CACHE_TTL):
+        with open(_streets_path()) as f:
+            _streets_cache["data"] = json.load(f)
+        _streets_cache["loaded_at"] = now
+    return _streets_cache["data"]
+
+
 # ── Math helpers ─────────────────────────────────────────────────────────────
 
 def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -128,8 +143,7 @@ def random_location() -> dict:
     Returns {lat, lon, bearing, bearing_direction, heading_auto,
              heading_options (two-way only), address, street}.
     """
-    with open(_streets_path()) as f:
-        data = json.load(f)
+    data = _load_streets()
 
     named = [s for s in data["streets"] if not s["name"].startswith("Unnamed_")]
 
@@ -305,8 +319,7 @@ def find_streets_mentioned(question: str,
     Uses substring matching so "Ashby Avenue" matches stored name "Ashby Ave".
     """
     try:
-        with open(_streets_path()) as f:
-            data = json.load(f)
+        data = _load_streets()
     except Exception as exc:
         import logging
         logging.getLogger(__name__).warning("find_streets_mentioned: could not load streets: %s", exc)
@@ -345,8 +358,7 @@ def find_street_suggestions(question: str) -> dict[str, str]:
     }
 
     try:
-        with open(_streets_path()) as f:
-            data = json.load(f)
+        data = _load_streets()
     except Exception:
         return {}
 
