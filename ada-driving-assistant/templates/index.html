@@ -1172,28 +1172,58 @@ async function showRoute() {
   finally { btn.disabled = false; btn.textContent = 'Show Route'; }
 }
 
-async function fetchOsrmRoute(lat1, lon1, lat2, lon2) {
-  const ORS_KEY = 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjBlZWY5ZjkxNDU0NDRhZjE4YmQwNGIyMmE1ZjIxOWRhIiwiaCI6Im11cm11cjY0In0=';
-  const url = `https://api.openrouteservice.org/v2/directions/driving-car?api_key=${ORS_KEY}&start=${lon1},${lat1}&end=${lon2},${lat2}`;
+async function _fetchWithTimeout(url, timeoutMs) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8000);
-  let r;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    r = await fetch(url, { signal: controller.signal });
+    const r = await fetch(url, { signal: controller.signal });
+    return await r.json();
   } finally {
     clearTimeout(timer);
   }
-  const d = await r.json();
-  if (!d.features?.length) return null;
-  const coords = d.features[0].geometry.coordinates; // [[lon, lat], ...]
-  // Collect unique non-empty street names from all steps
-  const streets = new Set();
-  for (const seg of d.features[0].properties?.segments || []) {
-    for (const step of seg.steps || []) {
-      if (step.name && step.name !== '-') streets.add(step.name);
+}
+
+async function fetchOsrmRoute(lat1, lon1, lat2, lon2) {
+  // Primary: OpenRouteService
+  try {
+    const ORS_KEY = 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjBlZWY5ZjkxNDU0NDRhZjE4YmQwNGIyMmE1ZjIxOWRhIiwiaCI6Im11cm11cjY0In0=';
+    const d = await _fetchWithTimeout(
+      `https://api.openrouteservice.org/v2/directions/driving-car?api_key=${ORS_KEY}&start=${lon1},${lat1}&end=${lon2},${lat2}`,
+      8000
+    );
+    if (d.features?.length) {
+      const coords = d.features[0].geometry.coordinates;
+      const streets = new Set();
+      for (const seg of d.features[0].properties?.segments || []) {
+        for (const step of seg.steps || []) {
+          if (step.name && step.name !== '-') streets.add(step.name);
+        }
+      }
+      console.log('Route: OpenRouteService');
+      return { coords, streets: [...streets] };
     }
-  }
-  return { coords, streets: [...streets] };
+  } catch(e) { console.warn('ORS failed, trying OSRM fallback:', e.message); }
+
+  // Fallback: OSRM (OSM Foundation server)
+  try {
+    const d = await _fetchWithTimeout(
+      `https://routing.openstreetmap.de/routed-car/route/v1/driving/${lon1},${lat1};${lon2},${lat2}?overview=full&geometries=geojson&steps=true`,
+      8000
+    );
+    if (d.code === 'Ok' && d.routes?.length) {
+      const coords = d.routes[0].geometry.coordinates;
+      const streets = new Set();
+      for (const leg of d.routes[0].legs || []) {
+        for (const step of leg.steps || []) {
+          if (step.name) streets.add(step.name);
+        }
+      }
+      console.log('Route: OSRM fallback');
+      return { coords, streets: [...streets] };
+    }
+  } catch(e) { console.warn('OSRM fallback also failed:', e.message); }
+
+  return null;
 }
 
 function drawPreviewRoute(coords, oLat, oLon, dLat, dLon) {
