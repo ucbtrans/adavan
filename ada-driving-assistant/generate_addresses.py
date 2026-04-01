@@ -58,29 +58,31 @@ def is_oneway(street: dict) -> bool:
 
 # ── Nominatim reverse geocode ─────────────────────────────────────────────────
 
-def reverse_geocode(lat: float, lon: float) -> str:
-    for attempt in range(4):
+def reverse_geocode(lat: float, lon: float) -> str | None:
+    """Return a street address string, or None if geocoding fails after retries."""
+    for attempt in range(5):
         try:
             r = requests.get(
                 f"{NOMINATIM_URL}/reverse",
                 params={"lat": lat, "lon": lon, "format": "json"},
                 headers=NOMINATIM_HEADERS,
-                timeout=10,
+                timeout=15,
             )
             if r.status_code == 429:
-                wait = 10 * (attempt + 1)
+                wait = 30 * (attempt + 1)
                 print(f"    [rate limited] waiting {wait}s...")
                 time.sleep(wait)
                 continue
             r.raise_for_status()
             data  = r.json()
             parts = data.get("display_name", "").split(",")
-            return ", ".join(p.strip() for p in parts[:3])
+            addr  = ", ".join(p.strip() for p in parts[:3])
+            return addr if addr else None
         except Exception as e:
-            if attempt < 3:
-                time.sleep(5 * (attempt + 1))
-            else:
-                return f"{lat:.5f}, {lon:.5f}"
+            wait = 10 * (attempt + 1)
+            print(f"    [geocode error attempt {attempt+1}] {e} — waiting {wait}s...")
+            time.sleep(wait)
+    return None  # all retries exhausted
 
 
 # ── City loader ───────────────────────────────────────────────────────────────
@@ -166,6 +168,9 @@ def generate(total: int, out_path: str) -> None:
 
             time.sleep(RATE_LIMIT_S)
             address = reverse_geocode(point["lat"], point["lon"])
+            if address is None:
+                print(f"    [skipping] geocode failed for {point['lat']:.5f},{point['lon']:.5f} — retrying with different point")
+                continue
 
             entry = {
                 "address":           address,
