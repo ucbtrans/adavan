@@ -84,7 +84,7 @@ Resources:
       FunctionName: ada-simulation
       CodeUri: .
       Handler: lambda_function.handler
-      Timeout: 120
+      Timeout: 300
       Policies:
         - S3CrudPolicy:
             BucketName: !Ref DataBucketName
@@ -94,7 +94,7 @@ Resources:
           Properties:
             Schedule: cron(0 6 * * ? *)
             Name: ada-daily-simulation
-            Description: Generate daily Berkeley traffic events
+            Description: Generate daily traffic events for all cities
 
   # ── DynamoDB sessions table ─────────────────────────────────────────────────
   SessionsTable:

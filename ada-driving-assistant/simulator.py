@@ -146,13 +146,15 @@ def _build_event(obj_type: str, lat: float, lon: float,
 
 # ── Public API ───────────────────────────────────────────────────────────────
 
-def generate_events(n: int = 300, day: datetime | None = None) -> list[dict]:
+def generate_events(n: int = 300, day: datetime | None = None,
+                    streets: list[dict] | None = None) -> list[dict]:
     """
     Generate N random events for a single day.
 
     Args:
-        n:   Number of events to generate.
-        day: The target day (defaults to today UTC).
+        n:       Number of events to generate.
+        day:     The target day (defaults to today UTC).
+        streets: Pre-loaded street list; if None, loads from city_streets.json.
 
     Returns:
         List of event dicts ready for JSON serialisation.
@@ -160,7 +162,8 @@ def generate_events(n: int = 300, day: datetime | None = None) -> list[dict]:
     if day is None:
         day = datetime.now(timezone.utc)
 
-    streets = load_streets()
+    if streets is None:
+        streets = load_streets()
     events = []
 
     for _ in range(n):
