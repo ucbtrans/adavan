@@ -1,10 +1,19 @@
 """
-Fetch all drivable streets for Berkeley, CA from the Overpass API
+Fetch all drivable streets for a city from the Overpass API
 and build city_streets.json with full coordinates and lane counts.
 
-Run once:  python fetch_streets.py
+Run once (Berkeley default):
+    python fetch_streets.py
+
+Other cities:
+    python fetch_streets.py --city Albany --state CA --bbox 37.8699,-122.3738,37.8990,-122.2817
+    python fetch_streets.py --city "El Cerrito" --state CA --bbox 37.8975,-122.3233,37.9383,-122.2811
+    python fetch_streets.py --city Richmond --state CA --bbox 37.8836,-122.4415,38.0286,-122.2435
+    python fetch_streets.py --city Emeryville --state CA --bbox 37.8271,-122.3302,37.8500,-122.2756
+    python fetch_streets.py --city Oakland --state CA --bbox 37.6301,-122.3559,37.8854,-122.1144
 """
 
+import argparse
 import json
 import math
 import sys
@@ -14,7 +23,7 @@ from collections import defaultdict
 
 import requests
 
-# ── Berkeley bounding box (S, W, N, E) ──────────────────────────────────────
+# ── Default: Berkeley bounding box (S, W, N, E) ─────────────────────────────
 BBOX = (37.8477, -122.3193, 37.9058, -122.2329)
 
 # Drivable highway types
@@ -37,13 +46,17 @@ DEFAULT_LANES = {
     "unclassified": 1, "residential": 1, "living_street": 1,
 }
 
-OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+OVERPASS_URLS = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.openstreetmap.ru/api/interpreter",
+]
 
 
-def fetch_osm(bbox):
+def fetch_osm(bbox, city="city"):
     s, w, n, e = bbox
     query = f"""
-[out:xml][timeout:90];
+[out:xml][timeout:120];
 (
   way["highway"]({s},{w},{n},{e});
 );
@@ -51,17 +64,20 @@ out body;
 >;
 out skel qt;
 """
-    print("Querying Overpass API for Berkeley streets…")
-    for attempt in range(3):
-        try:
-            r = requests.post(OVERPASS_URL, data={"data": query}, timeout=120)
-            r.raise_for_status()
-            return r.text
-        except Exception as exc:
-            print(f"  Attempt {attempt+1} failed: {exc}")
-            if attempt < 2:
-                time.sleep(5)
-    raise RuntimeError("Overpass API unavailable after 3 attempts")
+    print(f"Querying Overpass API for {city} streets…")
+    for url in OVERPASS_URLS:
+        for attempt in range(2):
+            try:
+                r = requests.post(url, data={"data": query}, timeout=150)
+                r.raise_for_status()
+                return r.text
+            except Exception as exc:
+                print(f"  {url.split('/')[2]} attempt {attempt+1} failed: {exc}")
+                if attempt < 1:
+                    time.sleep(5)
+        print(f"  Trying next Overpass server…")
+        time.sleep(5)
+    raise RuntimeError("All Overpass servers unavailable")
 
 
 def parse_lanes(tags, highway_type):
@@ -166,21 +182,37 @@ def build_streets(xml_text):
 
 
 def main():
-    xml_text = fetch_osm(BBOX)
+    parser = argparse.ArgumentParser(description="Fetch drivable streets for a city from OSM.")
+    parser.add_argument("--city",  default="Berkeley", help="City name (default: Berkeley)")
+    parser.add_argument("--state", default="CA",       help="State abbreviation (default: CA)")
+    parser.add_argument("--bbox",  default=None,
+                        help="Bounding box as S,W,N,E (default: Berkeley bbox)")
+    args = parser.parse_args()
+
+    if args.bbox:
+        parts = [float(x) for x in args.bbox.split(",")]
+        bbox = tuple(parts)  # S, W, N, E
+    else:
+        bbox = BBOX
+
+    xml_text = fetch_osm(bbox, city=args.city)
 
     print("Parsing OSM data…")
     streets = build_streets(xml_text)
     print(f"Found {len(streets)} streets")
 
     out = {
-        "city":    "Berkeley",
-        "state":   "CA",
+        "city":    args.city,
+        "state":   args.state,
         "country": "US",
-        "bbox":    {"south": BBOX[0], "west": BBOX[1], "north": BBOX[2], "east": BBOX[3]},
+        "bbox":    {"south": bbox[0], "west": bbox[1], "north": bbox[2], "east": bbox[3]},
         "streets": streets,
     }
 
-    outfile = "city_streets.json"
+    # Output filename: city_streets.json for Berkeley (backwards compat),
+    # city_streets_<City>.json for others
+    city_slug = args.city.replace(" ", "")
+    outfile = "city_streets.json" if args.city == "Berkeley" else f"city_streets_{city_slug}.json"
     with open(outfile, "w") as f:
         json.dump(out, f, separators=(",", ":"))   # compact — file is large
 
