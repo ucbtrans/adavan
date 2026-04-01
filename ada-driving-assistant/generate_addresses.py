@@ -134,18 +134,14 @@ def generate(total: int, out_path: str) -> None:
     if not cities:
         raise SystemExit("No city files found.")
 
-    # Weighted allocation by named-street count
-    total_streets = sum(len(streets) for _, streets in cities)
+    # Even allocation across cities; last city absorbs rounding remainder
+    base  = total // len(cities)
+    extra = total % len(cities)
     allocations = []
-    running = 0
     print("\nAddress allocation:")
     for i, (city, streets) in enumerate(cities):
-        if i < len(cities) - 1:
-            alloc = round(total * len(streets) / total_streets)
-        else:
-            alloc = total - running  # last city absorbs rounding remainder
+        alloc = base + (1 if i < extra else 0)
         allocations.append((city, streets, alloc))
-        running += alloc
         print(f"  {city:<12}: {alloc:>4} addresses")
 
     print(f"\nGenerating {total} addresses (~{total} seconds, ~{total//60}m{total%60:02d}s)...\n")
