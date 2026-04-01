@@ -756,6 +756,10 @@ let placedMarkerKeys   = new Set();   // "lat,lon,type" keys of already-placed m
 let sessionCurrentTag  = null;        // address tag for the active session
 const ROUTE_KEY = id => 'ada_route_' + id;
 
+// ── Address pool (pre-generated; lazy-loaded on first 🎲 click) ──────────────
+let addressPool = null;
+let addressPoolLoading = null;
+
 // ── AI consumption tracking (current session only) ──────────────────────────
 let sessionAiCalls        = 0;
 let sessionInputTokens    = 0;
@@ -1085,15 +1089,37 @@ function onManualDestInput() {
   if (previewDestMarker) { previewDestMarker.remove(); previewDestMarker = null; }
 }
 
-// ── Random location ──────────────────────────────────────────────────────
+// ── Address pool loader ───────────────────────────────────────────────────────
+async function loadAddressPool() {
+  if (addressPool !== null) return addressPool;
+  if (addressPoolLoading !== null) return addressPoolLoading;
+  addressPoolLoading = fetch('/addresses_pool.json')
+    .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+    .then(data => { addressPool = data; addressPoolLoading = null;
+                    console.log(`Address pool loaded: ${data.length} entries`); return addressPool; })
+    .catch(err => { console.warn('Address pool unavailable, using API fallback:', err.message);
+                    addressPoolLoading = null; return null; });
+  return addressPoolLoading;
+}
+function pickFromPool(pool) { return pool[Math.floor(Math.random() * pool.length)]; }
+
+// ── Random location ───────────────────────────────────────────────────────────
 async function suggestRandomOrigin() {
   const btn = document.getElementById('origin-rand-btn');
   btn.disabled = true; btn.textContent = '…';
   let locationData = null;
   try {
-    const r = await fetch(API_BASE + '/api/location/random');
-    const d = await r.json();
-    if (d.error) { alert('Server error: ' + d.error); return; }
+    const pool = await loadAddressPool();
+    let d;
+    if (pool) {
+      const destAddr = document.getElementById('dest-input').value.trim();
+      d = pickFromPool(pool);
+      for (let i = 0; i < 5 && d.address === destAddr; i++) d = pickFromPool(pool);
+    } else {
+      const r = await fetch(API_BASE + '/api/location/random');
+      d = await r.json();
+      if (d.error) { alert('Server error: ' + d.error); return; }
+    }
     document.getElementById('origin-input').value = d.address;
     pendingLat = d.lat; pendingLon = d.lon;
     if (d.heading_auto) {
@@ -1120,9 +1146,17 @@ async function suggestRandomDest() {
   const btn = document.getElementById('dest-rand-btn');
   btn.disabled = true; btn.textContent = '…';
   try {
-    const r = await fetch(API_BASE + '/api/location/random');
-    const d = await r.json();
-    if (d.error) { alert('Server error: ' + d.error); return; }
+    const pool = await loadAddressPool();
+    let d;
+    if (pool) {
+      const originAddr = document.getElementById('origin-input').value.trim();
+      d = pickFromPool(pool);
+      for (let i = 0; i < 5 && d.address === originAddr; i++) d = pickFromPool(pool);
+    } else {
+      const r = await fetch(API_BASE + '/api/location/random');
+      d = await r.json();
+      if (d.error) { alert('Server error: ' + d.error); return; }
+    }
     document.getElementById('dest-input').value = d.address;
     pendingDestLat = d.lat; pendingDestLon = d.lon;
     pendingDestAddress = d.address;
@@ -2169,6 +2203,7 @@ function initResizeHandle(handleId, targetEl, minW, maxW, onResize) {
 // ── Init ─────────────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', () => {
   loadSessions().catch(e => console.error('loadSessions failed:', e));
+  loadAddressPool().catch(() => {});   // pre-fetch pool silently
   try { initWakeWord(); } catch(e) { console.error('initWakeWord failed:', e); }
 
   // Close consumption modal on backdrop click or Escape

@@ -103,13 +103,13 @@ content = content.replace(\"window.ADA_API_BASE || ''\", \"'\" + api_url + \"'\"
 open('_deploy_index.html', 'w', encoding='utf-8').write(content)
 "
 
-# v2: same injection + v2.0 label in title and header
+# v2: same injection + v2.1 label in title and header
 $PYTHON -c "
 api_url = '$API_URL'
 content = open('templates/index.html', encoding='utf-8').read()
 content = content.replace(\"window.ADA_API_BASE || ''\", \"'\" + api_url + \"'\")
-content = content.replace('<title>ADA Driving Assistant</title>', '<title>ADA Driving Assistant v2.0</title>')
-content = content.replace('<h1>ADA <span>Driving Assistant</span></h1>', '<h1>ADA <span>Driving Assistant</span> <span style=\"font-size:0.7rem;color:var(--muted);font-weight:400;\">v2.0</span></h1>')
+content = content.replace('<title>ADA Driving Assistant</title>', '<title>ADA Driving Assistant v2.1</title>')
+content = content.replace('<h1>ADA <span>Driving Assistant</span></h1>', '<h1>ADA <span>Driving Assistant</span> <span style=\"font-size:0.7rem;color:var(--muted);font-weight:400;\">v2.1</span></h1>')
 open('_deploy_index_v2.html', 'w', encoding='utf-8').write(content)
 "
 
@@ -132,6 +132,20 @@ aws s3 cp _deploy_index_v2.html \
 aws s3 cp static/ada_logo.jpg \
   "s3://$WEB_BUCKET_V2/ada_logo.jpg" \
   --content-type "image/jpeg"
+
+if [[ -f "addresses_pool.json" ]]; then
+  echo "==> Uploading addresses_pool.json to S3..."
+  aws s3 cp addresses_pool.json \
+    "s3://$V1_BUCKET/addresses_pool.json" \
+    --content-type "application/json" \
+    --cache-control "public, max-age=86400"
+  aws s3 cp addresses_pool.json \
+    "s3://$WEB_BUCKET_V2/addresses_pool.json" \
+    --content-type "application/json" \
+    --cache-control "public, max-age=86400"
+else
+  echo "    (addresses_pool.json not found locally — skipping)"
+fi
 
 rm -f _deploy_index.html _deploy_index_v2.html
 
