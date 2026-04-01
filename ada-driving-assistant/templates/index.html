@@ -1207,7 +1207,7 @@ async function fetchOsrmRoute(lat1, lon1, lat2, lon2) {
   // Fallback: OSRM (OSM Foundation server)
   try {
     const d = await _fetchWithTimeout(
-      `https://routing.openstreetmap.de/routed-car/route/v1/driving/${lon1},${lat1};${lon2},${lat2}?overview=full&geometries=geojson&steps=true`,
+      `https://router.project-osrm.org/route/v1/driving/${lon1},${lat1};${lon2},${lat2}?overview=full&geometries=geojson&steps=true`,
       8000
     );
     if (d.code === 'Ok' && d.routes?.length) {
