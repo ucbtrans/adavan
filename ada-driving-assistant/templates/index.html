@@ -1713,7 +1713,7 @@ async function loadSessions() {
 
   el.innerHTML = sessions.map(s => `
     <div class="session-item ${s.id === currentSessionId ? 'active-session' : ''}" data-id="${s.id}">
-      <div class="s-addr" title="${s.address}">${s.address}</div>
+      <div class="s-addr" title="${s.destination || s.address}">${s.destination || s.address}</div>
       <div class="s-meta">Started: ${fmtDate(s.started_at)}</div>
       ${s.last_active_at !== s.started_at
         ? `<div class="s-meta">Resumed: ${fmtDate(s.last_active_at)}</div>`
