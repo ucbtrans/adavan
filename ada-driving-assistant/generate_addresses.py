@@ -59,19 +59,28 @@ def is_oneway(street: dict) -> bool:
 # ── Nominatim reverse geocode ─────────────────────────────────────────────────
 
 def reverse_geocode(lat: float, lon: float) -> str:
-    try:
-        r = requests.get(
-            f"{NOMINATIM_URL}/reverse",
-            params={"lat": lat, "lon": lon, "format": "json"},
-            headers=NOMINATIM_HEADERS,
-            timeout=10,
-        )
-        r.raise_for_status()
-        data  = r.json()
-        parts = data.get("display_name", "").split(",")
-        return ", ".join(p.strip() for p in parts[:3])
-    except Exception:
-        return f"{lat:.5f}, {lon:.5f}"
+    for attempt in range(4):
+        try:
+            r = requests.get(
+                f"{NOMINATIM_URL}/reverse",
+                params={"lat": lat, "lon": lon, "format": "json"},
+                headers=NOMINATIM_HEADERS,
+                timeout=10,
+            )
+            if r.status_code == 429:
+                wait = 10 * (attempt + 1)
+                print(f"    [rate limited] waiting {wait}s...")
+                time.sleep(wait)
+                continue
+            r.raise_for_status()
+            data  = r.json()
+            parts = data.get("display_name", "").split(",")
+            return ", ".join(p.strip() for p in parts[:3])
+        except Exception as e:
+            if attempt < 3:
+                time.sleep(5 * (attempt + 1))
+            else:
+                return f"{lat:.5f}, {lon:.5f}"
 
 
 # ── City loader ───────────────────────────────────────────────────────────────

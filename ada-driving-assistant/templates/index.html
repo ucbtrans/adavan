@@ -1095,8 +1095,12 @@ async function loadAddressPool() {
   if (addressPoolLoading !== null) return addressPoolLoading;
   addressPoolLoading = fetch('/addresses_pool.json')
     .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-    .then(data => { addressPool = data; addressPoolLoading = null;
-                    console.log(`Address pool loaded: ${data.length} entries`); return addressPool; })
+    .then(data => {
+      // Filter out entries where address is a raw coordinate fallback
+      addressPool = data.filter(e => !/^-?\d+\.\d+,\s*-?\d+\.\d+$/.test(e.address));
+      addressPoolLoading = null;
+      console.log(`Address pool loaded: ${addressPool.length} usable entries (${data.length} total)`);
+      return addressPool; })
     .catch(err => { console.warn('Address pool unavailable, using API fallback:', err.message);
                     addressPoolLoading = null; return null; });
   return addressPoolLoading;
