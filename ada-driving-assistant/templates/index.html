@@ -1062,7 +1062,7 @@ function updateRouteDisplay(newDistM) {
   if (routeAheadLayer)    { routeAheadLayer.remove();    routeAheadLayer    = null; }
   if (sessionRouteLayer)  { sessionRouteLayer.remove();  sessionRouteLayer  = null; }
   if (traveled.length >= 2)
-    routeTraveledLayer = L.polyline(traveled, {color:'#888888', weight:5, opacity:0.75}).addTo(sessionMap);
+    routeTraveledLayer = L.polyline(traveled, {color:'#00cccc', weight:5, opacity:0.85}).addTo(sessionMap);
   if (ahead.length >= 2)
     routeAheadLayer    = L.polyline(ahead,    {color:'#1a56b0', weight:5, opacity:0.8 }).addTo(sessionMap);
   routeCurrentPos = pos;
@@ -1686,9 +1686,9 @@ async function sendQuestion() {
   }
 
   // ── Movement commands: advance/back N blocks ──────────────────────────────
-  const ADVANCE_RE = /\b(advance|move\s+forward|go\s+forward|go\s+ahead|forward)\s+(\w+)\s+block\w*\b/i;
-  const BACK_RE    = /\b(back(?:ward)?|go\s+back|reverse|retreat)\s+(\w+)\s+block\w*\b/i;
-  const MOVE_RE    = /\b(move)\s+(\w+)\s+block\w*\b/i;
+  const ADVANCE_RE = /\b(advance|move\s+forward|go\s+forward|go\s+ahead|forward)\s+(\w+)(?:\s+block\w*)?\b/i;
+  const BACK_RE    = /\b(back(?:ward)?|go\s+back|reverse|retreat)\s+(\w+)(?:\s+block\w*)?\b/i;
+  const MOVE_RE    = /\b(move)\s+(\w+)(?:\s+block\w*)?\b/i;
   const advMatch   = ADVANCE_RE.test(question) ? question.match(ADVANCE_RE)
                    : (MOVE_RE.test(question)    ? question.match(MOVE_RE)    : null);
   const backMatch  = BACK_RE.test(question) ? question.match(BACK_RE) : null;
