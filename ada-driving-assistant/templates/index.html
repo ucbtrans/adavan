@@ -717,6 +717,17 @@ aside h2 {
     </div>
 
     <div class="hc-section">
+      <div class="hc-label">🚗 Simulated Movement</div>
+      <ul>
+        <li>"Advance 2 blocks" — move forward 2 blocks along the route</li>
+        <li>"Move forward 1 block" — move forward 1 block</li>
+        <li>"Go back 3 blocks" — reverse 3 blocks along the route</li>
+        <li>Works with numbers or words: "two blocks", "2 blocks"</li>
+        <li>Requires a session with a destination and loaded route</li>
+      </ul>
+    </div>
+
+    <div class="hc-section">
       <div class="hc-label">🎤 Voice</div>
       <ul>
         <li>Say <strong>"Hey ADA"</strong> to activate voice input</li>
@@ -841,6 +852,12 @@ let previewMarker      = null;
 let previewRouteLayer  = null;
 let previewDestMarker  = null;
 
+// ── Route-tracking state (simulated movement) ──────────────────────────────
+let routeCoords        = null;   // [[lon,lat],...] loaded from localStorage
+let routeDistM         = 0;      // meters traveled along route from origin
+let routeTraveledLayer = null;   // gray polyline behind current position
+let routeAheadLayer    = null;   // blue polyline ahead of current position
+
 // ── Map helpers ──────────────────────────────────────────────────────────
 function makeHeadingIcon(bearing) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">
@@ -960,6 +977,110 @@ function computeBearing(p1, p2) {
 
 function bearingDir(b) {
   return ["N","NE","E","SE","S","SW","W","NW"][Math.round(b/45)%8];
+}
+
+// ── Route movement helpers ────────────────────────────────────────────────
+function haversineM(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function routeTotalM() {
+  if (!routeCoords || routeCoords.length < 2) return 0;
+  let total = 0;
+  for (let i = 1; i < routeCoords.length; i++)
+    total += haversineM(routeCoords[i-1][1], routeCoords[i-1][0], routeCoords[i][1], routeCoords[i][0]);
+  return total;
+}
+
+function posAtDist(distM) {
+  if (!routeCoords || routeCoords.length === 0) return null;
+  if (distM <= 0) {
+    const p0 = routeCoords[0], p1 = routeCoords[1] || p0;
+    return { lat: p0[1], lon: p0[0], bearing: computeBearing({lat:p0[1],lon:p0[0]},{lat:p1[1],lon:p1[0]}) };
+  }
+  let walked = 0;
+  for (let i = 1; i < routeCoords.length; i++) {
+    const prev = routeCoords[i-1], curr = routeCoords[i];
+    const seg = haversineM(prev[1], prev[0], curr[1], curr[0]);
+    if (walked + seg >= distM) {
+      const t = (distM - walked) / seg;
+      return { lat: prev[1] + t*(curr[1]-prev[1]), lon: prev[0] + t*(curr[0]-prev[0]),
+               bearing: computeBearing({lat:prev[1],lon:prev[0]},{lat:curr[1],lon:curr[0]}) };
+    }
+    walked += seg;
+  }
+  const last = routeCoords[routeCoords.length-1], prev = routeCoords[routeCoords.length-2] || last;
+  return { lat: last[1], lon: last[0],
+           bearing: computeBearing({lat:prev[1],lon:prev[0]},{lat:last[1],lon:last[0]}) };
+}
+
+function splitRouteAtDist(distM) {
+  if (!routeCoords || routeCoords.length === 0) return { traveled: [], ahead: [] };
+  if (distM <= 0) return { traveled: [], ahead: routeCoords.map(c => [c[1],c[0]]) };
+  const pos = posAtDist(distM);
+  const splitPt = [pos.lat, pos.lon];
+  const traveled = [], ahead = [splitPt];
+  let walked = 0, splitFound = false;
+  for (let i = 0; i < routeCoords.length; i++) {
+    const c = routeCoords[i];
+    if (!splitFound) {
+      traveled.push([c[1], c[0]]);
+      if (i < routeCoords.length - 1) {
+        const seg = haversineM(c[1], c[0], routeCoords[i+1][1], routeCoords[i+1][0]);
+        if (walked + seg >= distM) { traveled.push(splitPt); splitFound = true; }
+        walked += seg;
+      }
+    } else {
+      ahead.push([c[1], c[0]]);
+    }
+  }
+  if (!splitFound) return { traveled: routeCoords.map(c => [c[1],c[0]]), ahead: [splitPt] };
+  return { traveled, ahead };
+}
+
+function wordToNum(s) {
+  const words = {one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10};
+  const n = parseInt(s, 10);
+  return isNaN(n) ? (words[s.toLowerCase()] ?? NaN) : n;
+}
+
+function updateRouteDisplay(newDistM) {
+  if (!routeCoords || !sessionMap) return;
+  const total = routeTotalM();
+  routeDistM = Math.max(0, Math.min(total, newDistM));
+  const pos = posAtDist(routeDistM);
+  if (!pos) return;
+  const { traveled, ahead } = splitRouteAtDist(routeDistM);
+  if (routeTraveledLayer) { routeTraveledLayer.remove(); routeTraveledLayer = null; }
+  if (routeAheadLayer)    { routeAheadLayer.remove();    routeAheadLayer    = null; }
+  if (sessionRouteLayer)  { sessionRouteLayer.remove();  sessionRouteLayer  = null; }
+  if (traveled.length >= 2)
+    routeTraveledLayer = L.polyline(traveled, {color:'#888888', weight:5, opacity:0.75}).addTo(sessionMap);
+  if (ahead.length >= 2)
+    routeAheadLayer    = L.polyline(ahead,    {color:'#1a56b0', weight:5, opacity:0.8 }).addTo(sessionMap);
+  sessionMarker.setLatLng([pos.lat, pos.lon]);
+  sessionMarker.setIcon(makeHeadingIcon(pos.bearing));
+  sessionMap.panTo([pos.lat, pos.lon]);
+}
+
+function initRouteTracking(session) {
+  routeCoords = null; routeDistM = 0;
+  if (routeTraveledLayer) { routeTraveledLayer.remove(); routeTraveledLayer = null; }
+  if (routeAheadLayer)    { routeAheadLayer.remove();    routeAheadLayer    = null; }
+  if (sessionRouteLayer)  { sessionRouteLayer.remove();  sessionRouteLayer  = null; }
+  if (sessionDestMarker)  { sessionDestMarker.remove();  sessionDestMarker  = null; }
+  const saved = localStorage.getItem(ROUTE_KEY(session.id));
+  if (!saved) return;
+  try { routeCoords = JSON.parse(saved); } catch(e) { console.warn('Route parse failed:', e); return; }
+  const latLngs = routeCoords.map(c => [c[1], c[0]]);
+  routeAheadLayer = L.polyline(latLngs, {color:'#1a56b0', weight:5, opacity:0.8}).addTo(sessionMap);
+  if (session.dest_lat && session.dest_lon)
+    sessionDestMarker = L.marker([session.dest_lat, session.dest_lon], {icon:makeDestIcon()}).addTo(sessionMap);
+  sessionMap.fitBounds(routeAheadLayer.getBounds(), {padding:[20,20]});
 }
 
 function initSessionMap(lat, lon, bearing) {
@@ -1433,18 +1554,7 @@ function activateSession(session) {
   showSessionView();
   try {
     initSessionMap(session.lat, session.lon, session.bearing);
-    const savedRoute = localStorage.getItem(ROUTE_KEY(session.id));
-    if (savedRoute) {
-      const coords = JSON.parse(savedRoute);
-      const latLngs = coords.map(c => [c[1], c[0]]);
-      if (sessionRouteLayer) { sessionRouteLayer.remove(); sessionRouteLayer = null; }
-      if (sessionDestMarker) { sessionDestMarker.remove(); sessionDestMarker = null; }
-      sessionRouteLayer = L.polyline(latLngs, { color: '#1a56b0', weight: 5, opacity: 0.8 }).addTo(sessionMap);
-      if (session.dest_lat && session.dest_lon) {
-        sessionDestMarker = L.marker([session.dest_lat, session.dest_lon], { icon: makeDestIcon() }).addTo(sessionMap);
-      }
-      sessionMap.fitBounds(sessionRouteLayer.getBounds(), { padding: [20, 20] });
-    }
+    initRouteTracking(session);
   }
   catch(e) { console.error('Map init failed:', e); }
   loadSessions();
@@ -1455,6 +1565,7 @@ function activateSession(session) {
 function endSession() {
   currentSessionId = null;
   if (sessionMap) { sessionMap.remove(); sessionMap = null; sessionMarker = null; }
+  routeCoords = null; routeDistM = 0; routeTraveledLayer = null; routeAheadLayer = null;
   sessionEventMarkers = [];
   allSessionSources   = [];
   placedMarkerKeys    = new Set();
@@ -1567,6 +1678,49 @@ async function sendQuestion() {
     }
     // No markers yet — treat as a request for route conditions
     question = 'What are the road conditions and obstacles along my route?';
+  }
+
+  // ── Movement commands: advance/back N blocks ──────────────────────────────
+  const ADVANCE_RE = /\b(advance|move\s+forward|go\s+forward|go\s+ahead|forward)\s+(\w+)\s+blocks?\b/i;
+  const BACK_RE    = /\b(back(?:ward)?|go\s+back|reverse|retreat)\s+(\w+)\s+blocks?\b/i;
+  const MOVE_RE    = /\bmove\s+(\w+)\s+blocks?\b/i;
+  const advMatch   = ADVANCE_RE.test(question) ? question.match(ADVANCE_RE)
+                   : (MOVE_RE.test(question)    ? question.match(MOVE_RE)    : null);
+  const backMatch  = BACK_RE.test(question) ? question.match(BACK_RE) : null;
+
+  if (advMatch || backMatch) {
+    if (!routeCoords) {
+      const ts = new Date().toISOString();
+      const msg = 'No route is loaded. Please start a session with a destination to use movement commands.';
+      appendMessage('assistant', msg, ts, true);
+      currentMessages.push({ role: 'assistant', content: msg, timestamp: ts });
+      saveChatLocal(currentSessionId, currentMessages);
+      return;
+    }
+    const match  = advMatch || backMatch;
+    const rawNum = advMatch ? match[2] : match[2];
+    const n      = wordToNum(rawNum);
+    if (!isNaN(n) && n > 0) {
+      const isBack  = !!backMatch;
+      const delta   = (n - 0.5) * 100;   // center of Nth block
+      const total   = routeTotalM();
+      const newDist = isBack ? Math.max(0, routeDistM - delta) : routeDistM + delta;
+      const ts = new Date().toISOString();
+      let msg;
+      if (!isBack && newDist >= total) {
+        updateRouteDisplay(total);
+        const destName = document.getElementById('session-dest-addr')?.textContent || 'your destination';
+        msg = `You have arrived at ${destName}.`;
+      } else {
+        updateRouteDisplay(newDist);
+        const bw = n === 1 ? 'block' : 'blocks';
+        msg = isBack ? `Moving back ${n} ${bw}.` : `Moving forward ${n} ${bw}.`;
+      }
+      appendMessage('assistant', msg, ts, true);
+      currentMessages.push({ role: 'assistant', content: msg, timestamp: ts });
+      saveChatLocal(currentSessionId, currentMessages);
+      return;
+    }
   }
 
   document.getElementById('send-btn').disabled = true;
@@ -1896,6 +2050,16 @@ const HELP_HTML = `
     <ul>
       <li>"Show markers" — display obstacle icons on the map</li>
       <li>"Clear markers" — remove all obstacle icons from the map</li>
+    </ul>
+  </div>
+  <div class="help-section">
+    <div class="help-label">🚗 Simulated Movement</div>
+    <ul>
+      <li>"Advance 2 blocks" — move forward 2 blocks along the route</li>
+      <li>"Move forward 1 block" — move forward 1 block</li>
+      <li>"Go back 3 blocks" — reverse 3 blocks along the route</li>
+      <li>Works with numbers or words: "two blocks", "2 blocks"</li>
+      <li>Requires a session with a destination and loaded route</li>
     </ul>
   </div>
   <div class="help-section">
