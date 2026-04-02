@@ -1228,7 +1228,16 @@ async function fetchTrafficLights() {
       cycleG, cycleY, cycleR, cycleTotal });
   }
   lights.sort((a, b) => a.distM - b.distM);
-  routeTrafficLights = lights;
+
+  // Deduplicate: OSM places one node per approach/corner — keep only the first
+  // light within each 35m spatial cluster so we show one icon per intersection.
+  const CLUSTER_M = 35;
+  const deduped = [];
+  for (const tl of lights) {
+    if (!deduped.some(ex => haversineM(tl.lat, tl.lon, ex.lat, ex.lon) < CLUSTER_M))
+      deduped.push(tl);
+  }
+  routeTrafficLights = deduped;
 
   // Create map markers (all start with current sim color)
   for (const tl of routeTrafficLights) {
