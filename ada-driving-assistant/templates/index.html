@@ -913,8 +913,13 @@ let simTimeSec       = 0;         // simulated elapsed seconds along route
 let simPassedStops   = new Set(); // stop-sign keys already triggered this forward pass
 let simStopUntilReal = 0;         // Date.now() value when stop-sign pause ends
 
+let routeTrafficLights        = [];  // [{lat,lon,distM,phaseOffset,cycleG,cycleY,cycleR,cycleTotal}]
+let routeTrafficLightMarkers  = [];  // Leaflet markers, parallel to routeTrafficLights
+
 const SIM_TICK_MS      = 100;   // real-time interval between ticks
 const SIM_STOP_PAUSE_S = 3;     // simulated seconds to pause at a stop sign
+const TL_APPROACH_M    = 80;    // start slowing at this distance from a red/yellow light
+const TL_STOP_M        = 4;     // full stop when within this distance
 
 // ── Map helpers ──────────────────────────────────────────────────────────
 function makeHeadingIcon(bearing) {
@@ -1102,19 +1107,134 @@ function splitRouteAtDist(distM) {
 
 // ── Simulation engine ─────────────────────────────────────────────────────
 
-function simStreetMph() {
+function simStreetMphAt(distM) {
   if (!routeStreets || routeStreets.length === 0) return 25;
   const total = routeTotalM();
   if (total <= 0) return 25;
-  const idx = Math.min(Math.floor((routeDistM / total) * routeStreets.length), routeStreets.length - 1);
+  const idx = Math.min(Math.floor((distM / total) * routeStreets.length), routeStreets.length - 1);
   const name = (routeStreets[idx] || '').toLowerCase();
   if (/freeway|highway|\bi-\d|\bus-\d|\bca-\d|expressway|motorway/.test(name)) return 65;
   if (/\bavenue\b|\bblvd\b|\bboulevard\b/.test(name)) return 35;
   if (/\broad\b|\brdway\b|\bdrive\b|\bparkway\b|\bpkwy\b/.test(name)) return 30;
   return 25;
 }
+function simStreetMph() { return simStreetMphAt(routeDistM); }
+function simSpeedMps()  { return simStreetMph() * 0.44704; }
 
-function simSpeedMps() { return simStreetMph() * 0.44704; }
+// ── Traffic light helpers ────────────────────────────────────────────────────
+
+function getTLColor(tl) {
+  // positive-modulo so negative simTimeSec (reverse mode) still works
+  const elapsed = ((simTimeSec + tl.phaseOffset) % tl.cycleTotal + tl.cycleTotal) % tl.cycleTotal;
+  if (elapsed < tl.cycleG)                     return 'green';
+  if (elapsed < tl.cycleG + tl.cycleY)         return 'yellow';
+  return 'red';
+}
+
+function makeTrafficLightIcon() {
+  return L.divIcon({
+    className: '',
+    html: `<div class="tl-housing" style="background:#1a1a1a;border-radius:3px;padding:2px 3px;border:1px solid #555;display:flex;flex-direction:column;gap:2px;box-shadow:0 1px 5px rgba(0,0,0,.6);">
+      <div class="tl-r" style="width:10px;height:10px;border-radius:50%;background:#4a1010;"></div>
+      <div class="tl-y" style="width:10px;height:10px;border-radius:50%;background:#4a3a10;"></div>
+      <div class="tl-g" style="width:10px;height:10px;border-radius:50%;background:#22c55e;"></div>
+    </div>`,
+    iconSize: [16, 42],
+    iconAnchor: [8, 42],
+  });
+}
+
+function clearTrafficLightMarkers() {
+  for (const m of routeTrafficLightMarkers) { try { m.remove(); } catch(e) {} }
+  routeTrafficLightMarkers = [];
+  routeTrafficLights       = [];
+}
+
+function updateTrafficLightMarkers() {
+  for (let i = 0; i < routeTrafficLights.length; i++) {
+    const el = routeTrafficLightMarkers[i]?.getElement();
+    if (!el) continue;
+    const color = getTLColor(routeTrafficLights[i]);
+    const r = el.querySelector('.tl-r');
+    const y = el.querySelector('.tl-y');
+    const g = el.querySelector('.tl-g');
+    if (r) r.style.background = color === 'red'    ? '#ef4444' : '#4a1010';
+    if (y) y.style.background = color === 'yellow' ? '#eab308' : '#4a3a10';
+    if (g) g.style.background = color === 'green'  ? '#22c55e' : '#0f3010';
+  }
+}
+
+function getTrafficLightSpeedFactor() {
+  // Returns 0–1: 1 = full speed, 0 = stopped. Only slows for forward movement.
+  for (const tl of routeTrafficLights) {
+    const dist = tl.distM - routeDistM;
+    if (dist < 0 || dist > TL_APPROACH_M) continue;
+    const color = getTLColor(tl);
+    if (color === 'green') continue;
+    if (dist <= TL_STOP_M) return 0;
+    return (dist - TL_STOP_M) / (TL_APPROACH_M - TL_STOP_M);
+  }
+  return 1;
+}
+
+async function fetchTrafficLights() {
+  if (!routeCoords || routeCoords.length === 0) return;
+  clearTrafficLightMarkers();
+
+  // Bounding box of route + padding
+  let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+  for (const [lon, lat] of routeCoords) {
+    if (lat < minLat) minLat = lat; if (lat > maxLat) maxLat = lat;
+    if (lon < minLon) minLon = lon; if (lon > maxLon) maxLon = lon;
+  }
+  const pad  = 0.001;
+  const bbox = `${minLat - pad},${minLon - pad},${maxLat + pad},${maxLon + pad}`;
+  const query = `[out:json][timeout:20];node["highway"="traffic_signals"](${bbox});out body;`;
+
+  const servers = [
+    'https://overpass-api.de/api/interpreter',
+    'https://overpass.kumi.systems/api/interpreter',
+    'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+  ];
+
+  let nodes = null;
+  for (const srv of servers) {
+    try {
+      const r = await fetch(srv, { method:'POST', body:'data=' + encodeURIComponent(query) });
+      if (r.ok) { nodes = (await r.json()).elements; break; }
+    } catch(e) { console.warn('TL Overpass failed:', srv, e); }
+  }
+  if (!nodes) { console.warn('Could not fetch traffic lights from Overpass'); return; }
+
+  const lights = [];
+  for (const node of nodes) {
+    const distM = findAlongRouteDist(node.lat, node.lon);
+    if (distM === null) continue;   // not within 50 m of the route
+
+    const mph = simStreetMphAt(distM);
+    let cycleG, cycleY = 5, cycleR;
+    if (mph >= 50) { cycleG = 45; cycleR = 45; }
+    else if (mph >= 30) { cycleG = 40; cycleR = 35; }
+    else { cycleG = 25; cycleR = 30; }
+    const cycleTotal = cycleG + cycleY + cycleR;
+
+    lights.push({ lat: node.lat, lon: node.lon, distM,
+      phaseOffset: Math.random() * cycleTotal,
+      cycleG, cycleY, cycleR, cycleTotal });
+  }
+  lights.sort((a, b) => a.distM - b.distM);
+  routeTrafficLights = lights;
+
+  // Create map markers (all start with current sim color)
+  for (const tl of routeTrafficLights) {
+    const marker = L.marker([tl.lat, tl.lon], { icon: makeTrafficLightIcon(), zIndexOffset: 200 })
+                    .addTo(sessionMap);
+    routeTrafficLightMarkers.push(marker);
+  }
+  // Initial color update
+  setTimeout(updateTrafficLightMarkers, 0);
+  console.log(`Traffic lights on route: ${lights.length}`);
+}
 
 function findAlongRouteDist(olat, olon) {
   if (!routeCoords || routeCoords.length < 2) return null;
@@ -1162,13 +1282,16 @@ function simTick() {
   if (!isBack && Date.now() < simStopUntilReal) {
     simTimeSec += simSec;
     updateSimTime();
+    updateTrafficLightMarkers();
     return;
   }
 
-  const deltaDist = simSpeedMps() * simSec * dir;
+  // Traffic-light speed factor (forward only; backward ignores lights)
+  const tlFactor  = isBack ? 1 : getTrafficLightSpeedFactor();
+  const deltaDist = simSpeedMps() * simSec * dir * tlFactor;
   const newDist   = Math.max(0, Math.min(total, routeDistM + deltaDist));
 
-  if (!isBack) {
+  if (!isBack && tlFactor > 0) {
     if (checkStopSignCrossed(routeDistM, newDist)) {
       simStopUntilReal = Date.now() + (SIM_STOP_PAUSE_S / mult) * 1000;
     }
@@ -1178,6 +1301,7 @@ function simTick() {
   simTimeSec = Math.max(0, simTimeSec + simSec * dir);
   updateSimTime();
   updateSimSpeedLabel();
+  updateTrafficLightMarkers();
 
   if ((isBack && newDist <= 0) || (!isBack && newDist >= total)) {
     if (!isBack) {
@@ -1238,9 +1362,12 @@ function simReset() {
   simTimeSec = 0;
   simPassedStops = new Set();
   simStopUntilReal = 0;
+  // Re-randomize traffic light phases so each reset feels independent
+  for (const tl of routeTrafficLights) tl.phaseOffset = Math.random() * tl.cycleTotal;
   updateRouteDisplay(0);
   updateSimTime();
   updateSimSpeedLabel();
+  updateTrafficLightMarkers();
 }
 
 function wordToNum(s) {
@@ -1288,6 +1415,7 @@ function initRouteTracking(session) {
     sessionDestMarker = L.marker([session.dest_lat, session.dest_lon], {icon:makeDestIcon()}).addTo(sessionMap);
   sessionMap.fitBounds(routeAheadLayer.getBounds(), {padding:[20,20]});
   if (simCtrl) simCtrl.style.display = 'flex';
+  fetchTrafficLights();   // async — populates routeTrafficLights and markers
 }
 
 function initSessionMap(lat, lon, bearing) {
@@ -1781,6 +1909,7 @@ function endSession() {
   if (sessionMap) { sessionMap.remove(); sessionMap = null; sessionMarker = null; }
   setSimMode('stopped');
   simTimeSec = 0; routeStreets = [];
+  clearTrafficLightMarkers();
   routeCoords = null; routeDistM = 0; routeCurrentPos = null; routeTraveledLayer = null; routeAheadLayer = null;
   sessionEventMarkers = [];
   allSessionSources   = [];
