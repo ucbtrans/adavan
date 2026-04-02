@@ -85,7 +85,19 @@ if [[ -f "traffic_signals.json" ]]; then
   aws s3 cp traffic_signals.json \
     "s3://$WEB_BUCKET_V2/traffic_signals.json" \
     --content-type "application/json" \
-    --cache-control "public/max-age=86400"
+    --cache-control "public, max-age=86400"
+fi
+
+if [[ -f "stop_signs.json" ]]; then
+  echo "==> Uploading stop_signs.json..."
+  aws s3 cp stop_signs.json \
+    "s3://$V1_BUCKET/stop_signs.json" \
+    --content-type "application/json" \
+    --cache-control "public, max-age=86400"
+  aws s3 cp stop_signs.json \
+    "s3://$WEB_BUCKET_V2/stop_signs.json" \
+    --content-type "application/json" \
+    --cache-control "public, max-age=86400"
 fi
 
 rm -f _deploy_index.html _deploy_index_v2.html

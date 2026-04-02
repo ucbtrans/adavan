@@ -915,11 +915,15 @@ let simStopUntilReal = 0;         // Date.now() value when stop-sign pause ends
 
 let routeTrafficLights        = [];  // [{lat,lon,distM,phaseOffset,cycleG,cycleY,cycleR,cycleTotal}]
 let routeTrafficLightMarkers  = [];  // Leaflet markers, parallel to routeTrafficLights
+let routeStopSigns            = [];  // [{lat,lon,distM}]
+let routeStopSignMarkers      = [];  // Leaflet markers, parallel to routeStopSigns
 
 const SIM_TICK_MS      = 100;   // real-time interval between ticks
 const SIM_STOP_PAUSE_S = 3;     // simulated seconds to pause at a stop sign
 const TL_APPROACH_M    = 80;    // start slowing at this distance from a red/yellow light
 const TL_STOP_M        = 4;     // full stop when within this distance
+const SS_APPROACH_M    = 40;    // start slowing before a stop sign
+const SS_STOP_M        = 3;     // full stop within this distance of stop sign
 
 // ── Map helpers ──────────────────────────────────────────────────────────
 function makeHeadingIcon(bearing) {
@@ -1144,10 +1148,28 @@ function makeTrafficLightIcon() {
   });
 }
 
+function makeStopSignIcon() {
+  return L.divIcon({
+    className: '',
+    html: `<svg width="14" height="14" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg">
+      <polygon points="4,0 10,0 14,4 14,10 10,14 4,14 0,10 0,4" fill="#dc2626" stroke="#7f1d1d" stroke-width="1"/>
+      <text x="7" y="10" text-anchor="middle" font-family="Arial,sans-serif" font-size="5.5" font-weight="bold" fill="white">STOP</text>
+    </svg>`,
+    iconSize: [14, 14],
+    iconAnchor: [7, 14],
+  });
+}
+
 function clearTrafficLightMarkers() {
   for (const m of routeTrafficLightMarkers) { try { m.remove(); } catch(e) {} }
   routeTrafficLightMarkers = [];
   routeTrafficLights       = [];
+}
+
+function clearStopSignMarkers() {
+  for (const m of routeStopSignMarkers) { try { m.remove(); } catch(e) {} }
+  routeStopSignMarkers = [];
+  routeStopSigns       = [];
 }
 
 function updateTrafficLightMarkers() {
@@ -1193,6 +1215,21 @@ async function loadTrafficSignalsStatic() {
 
 // Pre-fetch on page load so it's ready by the time a session starts
 loadTrafficSignalsStatic().catch(() => {});
+
+let _ssStaticCache = null;
+let _ssStaticLoading = null;
+
+async function loadStopSignsStatic() {
+  if (_ssStaticCache) return _ssStaticCache;
+  if (_ssStaticLoading) return _ssStaticLoading;
+  _ssStaticLoading = fetch('/stop_signs.json')
+    .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+    .then(data => { _ssStaticCache = data; _ssStaticLoading = null; return data; })
+    .catch(err => { console.warn('stop_signs.json unavailable:', err); _ssStaticLoading = null; return []; });
+  return _ssStaticLoading;
+}
+
+loadStopSignsStatic().catch(() => {});
 
 async function fetchTrafficLights() {
   if (!routeCoords || routeCoords.length === 0) return;
@@ -1250,6 +1287,50 @@ async function fetchTrafficLights() {
   console.log(`Traffic lights on route: ${lights.length}`);
 }
 
+async function fetchStopSigns() {
+  if (!routeCoords || routeCoords.length === 0) return;
+  clearStopSignMarkers();
+
+  // Route bounding box for spatial pre-filter
+  let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+  for (const [lon, lat] of routeCoords) {
+    if (lat < minLat) minLat = lat; if (lat > maxLat) maxLat = lat;
+    if (lon < minLon) minLon = lon; if (lon > maxLon) maxLon = lon;
+  }
+  const pad = 0.001;
+  minLat -= pad; maxLat += pad; minLon -= pad; maxLon += pad;
+
+  const allNodes = await loadStopSignsStatic();
+
+  const signs = [];
+  for (const node of allNodes) {
+    if (node.lat < minLat || node.lat > maxLat || node.lon < minLon || node.lon > maxLon) continue;
+    const distM = findAlongRouteDist(node.lat, node.lon);
+    if (distM === null) continue;
+    signs.push({ lat: node.lat, lon: node.lon, distM });
+  }
+  signs.sort((a, b) => a.distM - b.distM);
+  routeStopSigns = signs;
+
+  for (const ss of routeStopSigns) {
+    const marker = L.marker([ss.lat, ss.lon], { icon: makeStopSignIcon(), zIndexOffset: 190 })
+                    .addTo(sessionMap);
+    routeStopSignMarkers.push(marker);
+  }
+  console.log(`Stop signs on route: ${routeStopSigns.length}`);
+}
+
+function getStopSignSpeedFactor() {
+  // Returns 0–1: slows approaching a stop sign, 0 = stopped at the sign.
+  for (const ss of routeStopSigns) {
+    const dist = ss.distM - routeDistM;
+    if (dist < 0 || dist > SS_APPROACH_M) continue;
+    if (dist <= SS_STOP_M) return 0;
+    return (dist - SS_STOP_M) / (SS_APPROACH_M - SS_STOP_M);
+  }
+  return 1;
+}
+
 function findAlongRouteDist(olat, olon) {
   if (!routeCoords || routeCoords.length < 2) return null;
   let minPerp = Infinity, bestAlong = 0, cumDist = 0;
@@ -1266,16 +1347,14 @@ function findAlongRouteDist(olat, olon) {
 }
 
 function checkStopSignCrossed(fromDist, toDist) {
-  if (!allSessionSources || allSessionSources.length === 0) return false;
-  for (const obj of allSessionSources) {
-    const t = (obj.type || obj.sub_type || '').toLowerCase();
-    if (!t.includes('stop')) continue;
-    const olat = obj._lat ?? obj.lat, olon = obj._lon ?? obj.lon;
-    if (olat == null || olon == null) continue;
-    const key = `${Math.round(olat * 1e4)},${Math.round(olon * 1e4)}`;
-    if (simPassedStops.has(key)) continue;
-    const d = findAlongRouteDist(olat, olon);
-    if (d !== null && d > fromDist && d <= toDist) { simPassedStops.add(key); return true; }
+  // Uses OSM-derived routeStopSigns for reliable detection
+  for (const ss of routeStopSigns) {
+    if (ss.distM > fromDist && ss.distM <= toDist) {
+      const key = `${Math.round(ss.lat * 1e4)},${Math.round(ss.lon * 1e4)}`;
+      if (simPassedStops.has(key)) continue;
+      simPassedStops.add(key);
+      return true;
+    }
   }
   return false;
 }
@@ -1300,12 +1379,14 @@ function simTick() {
     return;
   }
 
-  // Traffic-light speed factor (forward only; backward ignores lights)
+  // Combined speed factor: slowest of TL and stop sign approach (forward only)
   const tlFactor  = isBack ? 1 : getTrafficLightSpeedFactor();
-  const deltaDist = simSpeedMps() * simSec * dir * tlFactor;
+  const ssFactor  = isBack ? 1 : getStopSignSpeedFactor();
+  const speedFactor = Math.min(tlFactor, ssFactor);
+  const deltaDist = simSpeedMps() * simSec * dir * speedFactor;
   const newDist   = Math.max(0, Math.min(total, routeDistM + deltaDist));
 
-  if (!isBack && tlFactor > 0) {
+  if (!isBack && speedFactor > 0) {
     if (checkStopSignCrossed(routeDistM, newDist)) {
       simStopUntilReal = Date.now() + (SIM_STOP_PAUSE_S / mult) * 1000;
     }
@@ -1430,6 +1511,7 @@ function initRouteTracking(session) {
   sessionMap.fitBounds(routeAheadLayer.getBounds(), {padding:[20,20]});
   if (simCtrl) simCtrl.style.display = 'flex';
   fetchTrafficLights();   // async — populates routeTrafficLights and markers
+  fetchStopSigns();        // async — populates routeStopSigns and markers
 }
 
 function initSessionMap(lat, lon, bearing) {
@@ -1924,6 +2006,7 @@ function endSession() {
   setSimMode('stopped');
   simTimeSec = 0; routeStreets = [];
   clearTrafficLightMarkers();
+  clearStopSignMarkers();
   routeCoords = null; routeDistM = 0; routeCurrentPos = null; routeTraveledLayer = null; routeAheadLayer = null;
   sessionEventMarkers = [];
   allSessionSources   = [];
