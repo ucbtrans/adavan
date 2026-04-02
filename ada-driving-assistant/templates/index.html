@@ -1177,39 +1177,42 @@ function getTrafficLightSpeedFactor() {
   return 1;
 }
 
+// Module-level cache so we only fetch the static file once per page load
+let _tlStaticCache = null;
+let _tlStaticLoading = null;
+
+async function loadTrafficSignalsStatic() {
+  if (_tlStaticCache) return _tlStaticCache;
+  if (_tlStaticLoading) return _tlStaticLoading;
+  _tlStaticLoading = fetch('/traffic_signals.json')
+    .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+    .then(data => { _tlStaticCache = data; _tlStaticLoading = null; return data; })
+    .catch(err => { console.warn('traffic_signals.json unavailable:', err); _tlStaticLoading = null; return []; });
+  return _tlStaticLoading;
+}
+
+// Pre-fetch on page load so it's ready by the time a session starts
+loadTrafficSignalsStatic().catch(() => {});
+
 async function fetchTrafficLights() {
   if (!routeCoords || routeCoords.length === 0) return;
   clearTrafficLightMarkers();
 
-  // Bounding box of route + padding
+  // Route bounding box for spatial pre-filter (fast — avoids calling findAlongRouteDist on all 2000+ nodes)
   let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
   for (const [lon, lat] of routeCoords) {
     if (lat < minLat) minLat = lat; if (lat > maxLat) maxLat = lat;
     if (lon < minLon) minLon = lon; if (lon > maxLon) maxLon = lon;
   }
-  const pad  = 0.001;
-  const bbox = `${minLat - pad},${minLon - pad},${maxLat + pad},${maxLon + pad}`;
-  const query = `[out:json][timeout:20];node["highway"="traffic_signals"](${bbox});out body;`;
+  const pad = 0.001;   // ~100 m padding
+  minLat -= pad; maxLat += pad; minLon -= pad; maxLon += pad;
 
-  const servers = [
-    'https://overpass-api.de/api/interpreter',
-    'https://overpass.kumi.systems/api/interpreter',
-    'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
-  ];
-
-  let nodes = null;
-  for (const srv of servers) {
-    try {
-      const r = await fetch(srv, { method:'POST', body:'data=' + encodeURIComponent(query) });
-      if (r.ok) { nodes = (await r.json()).elements; break; }
-    } catch(e) { console.warn('TL Overpass failed:', srv, e); }
-  }
-  if (!nodes) { console.warn('Could not fetch traffic lights from Overpass'); return; }
+  const allNodes = await loadTrafficSignalsStatic();
 
   const lights = [];
-  for (const node of nodes) {
-    const tlType = (node.tags?.traffic_signals || '').toLowerCase();
-    if (tlType === 'ramp_meter' || tlType === 'pedestrian') continue;  // not vehicle signals
+  for (const node of allNodes) {
+    // Quick bbox pre-filter before expensive corridor check
+    if (node.lat < minLat || node.lat > maxLat || node.lon < minLon || node.lon > maxLon) continue;
     const distM = findAlongRouteDist(node.lat, node.lon);
     if (distM === null) continue;   // not within 50 m of the route
 

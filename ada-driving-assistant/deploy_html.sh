@@ -76,6 +76,18 @@ if [[ -f "addresses_pool.json" ]]; then
     --cache-control "public, max-age=86400"
 fi
 
+if [[ -f "traffic_signals.json" ]]; then
+  echo "==> Uploading traffic_signals.json..."
+  aws s3 cp traffic_signals.json \
+    "s3://$V1_BUCKET/traffic_signals.json" \
+    --content-type "application/json" \
+    --cache-control "public, max-age=86400"
+  aws s3 cp traffic_signals.json \
+    "s3://$WEB_BUCKET_V2/traffic_signals.json" \
+    --content-type "application/json" \
+    --cache-control "public/max-age=86400"
+fi
+
 rm -f _deploy_index.html _deploy_index_v2.html
 
 echo "==> Invalidating CloudFront cache..."
