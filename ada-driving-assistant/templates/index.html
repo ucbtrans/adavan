@@ -1134,13 +1134,13 @@ function getTLColor(tl) {
 function makeTrafficLightIcon() {
   return L.divIcon({
     className: '',
-    html: `<div class="tl-housing" style="background:#1a1a1a;border-radius:3px;padding:2px 3px;border:1px solid #555;display:flex;flex-direction:column;gap:2px;box-shadow:0 1px 5px rgba(0,0,0,.6);">
-      <div class="tl-r" style="width:10px;height:10px;border-radius:50%;background:#4a1010;"></div>
-      <div class="tl-y" style="width:10px;height:10px;border-radius:50%;background:#4a3a10;"></div>
-      <div class="tl-g" style="width:10px;height:10px;border-radius:50%;background:#22c55e;"></div>
+    html: `<div class="tl-housing" style="background:#1a1a1a;border-radius:2px;padding:1px 2px;border:1px solid #555;display:flex;flex-direction:column;gap:1px;box-shadow:0 1px 3px rgba(0,0,0,.6);">
+      <div class="tl-r" style="width:6px;height:6px;border-radius:50%;background:#4a1010;"></div>
+      <div class="tl-y" style="width:6px;height:6px;border-radius:50%;background:#4a3a10;"></div>
+      <div class="tl-g" style="width:6px;height:6px;border-radius:50%;background:#22c55e;"></div>
     </div>`,
-    iconSize: [16, 42],
-    iconAnchor: [8, 42],
+    iconSize: [10, 26],
+    iconAnchor: [5, 26],
   });
 }
 
