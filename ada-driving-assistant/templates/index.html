@@ -1208,6 +1208,8 @@ async function fetchTrafficLights() {
 
   const lights = [];
   for (const node of nodes) {
+    const tlType = (node.tags?.traffic_signals || '').toLowerCase();
+    if (tlType === 'ramp_meter' || tlType === 'pedestrian') continue;  // not vehicle signals
     const distM = findAlongRouteDist(node.lat, node.lon);
     if (distM === null) continue;   // not within 50 m of the route
 
