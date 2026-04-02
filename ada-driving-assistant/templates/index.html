@@ -1310,7 +1310,16 @@ async function fetchStopSigns() {
     signs.push({ lat: node.lat, lon: node.lon, distM });
   }
   signs.sort((a, b) => a.distM - b.distM);
-  routeStopSigns = signs;
+
+  // Deduplicate: OSM has one stop node per approach lane — keep only one per 30m
+  // cluster so the car doesn't stop multiple times at the same intersection.
+  const SS_CLUSTER_M = 30;
+  const deduped = [];
+  for (const ss of signs) {
+    if (!deduped.some(ex => haversineM(ss.lat, ss.lon, ex.lat, ex.lon) < SS_CLUSTER_M))
+      deduped.push(ss);
+  }
+  routeStopSigns = deduped;
 
   for (const ss of routeStopSigns) {
     const marker = L.marker([ss.lat, ss.lon], { icon: makeStopSignIcon(), zIndexOffset: 190 })
