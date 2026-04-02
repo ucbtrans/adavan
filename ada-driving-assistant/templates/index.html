@@ -1322,7 +1322,10 @@ async function fetchStopSigns() {
 
 function getStopSignSpeedFactor() {
   // Returns 0–1: slows approaching a stop sign, 0 = stopped at the sign.
+  // Skips signs already marked as passed so the car is never blocked by them again.
   for (const ss of routeStopSigns) {
+    const key = `${Math.round(ss.lat * 1e4)},${Math.round(ss.lon * 1e4)}`;
+    if (simPassedStops.has(key)) continue;
     const dist = ss.distM - routeDistM;
     if (dist < 0 || dist > SS_APPROACH_M) continue;
     if (dist <= SS_STOP_M) return 0;
@@ -1386,9 +1389,18 @@ function simTick() {
   const deltaDist = simSpeedMps() * simSec * dir * speedFactor;
   const newDist   = Math.max(0, Math.min(total, routeDistM + deltaDist));
 
-  if (!isBack && speedFactor > 0) {
-    if (checkStopSignCrossed(routeDistM, newDist)) {
-      simStopUntilReal = Date.now() + (SIM_STOP_PAUSE_S / mult) * 1000;
+  // Stop sign: when car arrives at sign (ssFactor=0) and not already pausing,
+  // mark the sign as passed and start the pause timer so the car can resume.
+  if (!isBack && ssFactor === 0 && Date.now() >= simStopUntilReal) {
+    for (const ss of routeStopSigns) {
+      const key = `${Math.round(ss.lat * 1e4)},${Math.round(ss.lon * 1e4)}`;
+      if (simPassedStops.has(key)) continue;
+      const dist = ss.distM - routeDistM;
+      if (dist >= 0 && dist <= SS_APPROACH_M) {
+        simPassedStops.add(key);
+        simStopUntilReal = Date.now() + (SIM_STOP_PAUSE_S / mult) * 1000;
+        break;
+      }
     }
   }
 
