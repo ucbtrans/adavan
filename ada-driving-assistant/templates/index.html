@@ -711,14 +711,6 @@ aside h2 {
     </div>
 
     <div class="hc-section">
-      <div class="hc-label">📖 How to get help</div>
-      <ul>
-        <li>Type <strong>help</strong> in the chat box at any time</li>
-        <li>Press the <strong>❓</strong> button in the top-right corner</li>
-      </ul>
-    </div>
-
-    <div class="hc-section">
       <div class="hc-label">🚧 Route Conditions</div>
       <ul>
         <li>"What hazards are ahead on my route?"</li>
@@ -763,13 +755,50 @@ aside h2 {
     </div>
 
     <div class="hc-section">
-      <div class="hc-label">🚗 Simulated Movement</div>
+      <div class="hc-label">💬 Step-by-step Movement Commands</div>
       <ul>
-        <li>"Advance 2 blocks" — move forward 2 blocks along the route</li>
-        <li>"Move forward 1 block" — move forward 1 block</li>
-        <li>"Go back 3 blocks" — reverse 3 blocks along the route</li>
-        <li>Works with numbers or words: "two blocks", "2 blocks"</li>
-        <li>Requires a session with a destination and loaded route</li>
+        <li>"Advance 2 blocks" / "Move forward 3" — move forward along the route</li>
+        <li>"Go back 2 blocks" / "Back 1" — reverse along the route</li>
+        <li>Accepts numbers or words: "three blocks", "3 blocks", "3"</li>
+      </ul>
+    </div>
+
+    <div class="hc-section">
+      <div class="hc-label">▶ Continuous Route Simulation</div>
+      <ul>
+        <li><strong>▶ / ⏸</strong> — start or pause forward driving</li>
+        <li><strong>◀</strong> — drive in reverse</li>
+        <li><strong>⏩ / ⏪</strong> — fast-forward or fast-rewind at 10× real time</li>
+        <li><strong>⏹</strong> — stop and reset to route origin</li>
+        <li>Speed shown reflects actual simulated speed including deceleration</li>
+        <li>Simulated travel time is displayed next to the controls</li>
+      </ul>
+    </div>
+
+    <div class="hc-section">
+      <div class="hc-label">🚦 Traffic Lights (simulation)</div>
+      <ul>
+        <li>Traffic light icons are shown at intersections along the route</li>
+        <li>Each light cycles independently through green → yellow → red</li>
+        <li>Car automatically slows and stops at red/yellow, resumes on green</li>
+        <li>Traffic lights are ignored on freeways</li>
+      </ul>
+    </div>
+
+    <div class="hc-section">
+      <div class="hc-label">🛑 Stop Signs (simulation)</div>
+      <ul>
+        <li>Stop sign icons are shown at intersections along the route</li>
+        <li>Car automatically slows and stops briefly at each stop sign</li>
+        <li>Stop signs are ignored on freeways</li>
+      </ul>
+    </div>
+
+    <div class="hc-section">
+      <div class="hc-label">🛣️ Freeway Driving</div>
+      <ul>
+        <li>Speed is 65 mph on freeways — no stops for traffic lights or stop signs</li>
+        <li>Freeway segments are detected automatically from the route</li>
       </ul>
     </div>
 
@@ -787,7 +816,7 @@ aside h2 {
         <li>Type <strong>help</strong> in the chat at any time to see this guide</li>
         <li>Parking estimates are simulated and apply to unregulated (non-colored) curbs only</li>
         <li>Blue curb spots require a disabled placard or qualifying license plate</li>
-        <li>Coverage includes Berkeley, Albany, El Cerrito, Richmond, Emeryville, and Oakland, CA</li>
+        <li>Coverage: Berkeley, Albany, El Cerrito, Richmond, Emeryville, and Oakland, CA</li>
       </ul>
     </div>
   </div>
@@ -2506,72 +2535,63 @@ const HELP_HTML = `
 <div class="help-block">
   <h3>❓ What can I ask ADA?</h3>
   <div class="help-section">
-    <div class="help-label">📖 How to get help</div>
-    <ul>
-      <li>Type <strong>help</strong> in the chat box at any time</li>
-      <li>Press the <strong>❓</strong> button in the top-right corner</li>
-    </ul>
-  </div>
-  <div class="help-section">
-    <div class="help-label">🚧 Route Conditions</div>
+    <div class="help-label">🚧 Route &amp; Street Conditions</div>
     <ul>
       <li>"What hazards are ahead on my route?"</li>
-      <li>"Are there any construction zones on my route?"</li>
-    </ul>
-  </div>
-  <div class="help-section">
-    <div class="help-label">🏙️ Street Conditions</div>
-    <ul>
+      <li>"Are there construction zones on my route?"</li>
       <li>"What's happening on Telegraph Avenue?"</li>
-      <li>"Is University Avenue clear?"</li>
     </ul>
   </div>
   <div class="help-section">
-    <div class="help-label">🅿️ Parking — uncolored curbs</div>
+    <div class="help-label">🅿️ Parking</div>
     <ul>
       <li>"Is there parking near my destination?"</li>
-      <li>"Any parking within two blocks from Solano Ave and Tacoma Ave?"</li>
-      <li>"Parking near Telegraph and Bancroft?"</li>
-    </ul>
-  </div>
-  <div class="help-section">
-    <div class="help-label">♿ Blue Curb (disabled parking)</div>
-    <ul>
-      <li>"Is there blue curb parking near my destination?"</li>
-      <li>"Any disabled parking near Shattuck and University?"</li>
-      <li>"Handicap spot near Telegraph and Dwight?"</li>
+      <li>"Any parking near Telegraph and Bancroft?"</li>
+      <li>"Blue curb near Shattuck and University?"</li>
     </ul>
   </div>
   <div class="help-section">
     <div class="help-label">📍 Map Markers</div>
     <ul>
-      <li>"Show markers" — display obstacle icons on the map</li>
-      <li>"Clear markers" — remove all obstacle icons from the map</li>
+      <li>"Show markers" / "Clear markers"</li>
     </ul>
   </div>
   <div class="help-section">
-    <div class="help-label">🚗 Simulated Movement</div>
+    <div class="help-label">💬 Step-by-step Movement</div>
     <ul>
-      <li>"Advance 2 blocks" — move forward 2 blocks along the route</li>
-      <li>"Move forward 1 block" — move forward 1 block</li>
-      <li>"Go back 3 blocks" — reverse 3 blocks along the route</li>
-      <li>Works with numbers or words: "two blocks", "2 blocks"</li>
-      <li>Requires a session with a destination and loaded route</li>
+      <li>"Advance 2 blocks" / "Move 3" / "Go back 1 block"</li>
+      <li>Numbers or words: "two blocks", "2", "2 blocks"</li>
+    </ul>
+  </div>
+  <div class="help-section">
+    <div class="help-label">▶ Continuous Simulation Controls</div>
+    <ul>
+      <li><strong>▶/⏸</strong> forward &nbsp;|&nbsp; <strong>◀</strong> reverse &nbsp;|&nbsp; <strong>⏩/⏪</strong> 10× speed &nbsp;|&nbsp; <strong>⏹</strong> reset</li>
+      <li>Speed display shows actual speed — slows at lights &amp; signs, 0 when stopped</li>
+      <li>65 mph on freeways — no stops for traffic lights or stop signs</li>
+    </ul>
+  </div>
+  <div class="help-section">
+    <div class="help-label">🚦 Traffic Lights &amp; 🛑 Stop Signs</div>
+    <ul>
+      <li>Icons shown on map along the route</li>
+      <li>Car slows and stops automatically; resumes when clear</li>
+      <li>Both are skipped on freeway segments</li>
     </ul>
   </div>
   <div class="help-section">
     <div class="help-label">🎤 Voice</div>
     <ul>
-      <li>Say <strong>"Hey ADA"</strong> to activate voice input</li>
-      <li>Use the 🎤 button to speak any question</li>
+      <li>Say <strong>"Hey ADA"</strong> or tap 🎤 to speak</li>
     </ul>
   </div>
   <div class="help-section">
     <div class="help-label">💡 Tips</div>
     <ul>
       <li>Parking estimates apply to unregulated (non-colored) curbs only</li>
-      <li>Blue curb spots require a disabled placard or qualifying license plate</li>
-      <li>All data is scoped to Berkeley, CA</li>
+      <li>Blue curb requires a disabled placard or qualifying plate</li>
+      <li>Coverage: Berkeley, Albany, El Cerrito, Richmond, Emeryville, Oakland</li>
+      <li>Press ❓ in the toolbar for the full reference guide</li>
     </ul>
   </div>
 </div>`;
