@@ -282,6 +282,43 @@ aside h2 {
 }
 #session-map { flex: 1; min-height: 0; }
 
+#sim-controls {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 8px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+#sim-controls .sim-btn {
+  padding: 3px 11px;
+  font-size: 1.05rem;
+  line-height: 1.3;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+  transition: background .12s;
+  min-width: 36px;
+}
+#sim-controls .sim-btn:hover:not(.active) { background: var(--hover); }
+#sim-controls .sim-btn.active { background: var(--blue); color:#fff; border-color: var(--blue); }
+#sim-speed-label {
+  font-size: .75rem;
+  color: var(--muted);
+  margin-left: 4px;
+  min-width: 50px;
+}
+#sim-time-display {
+  margin-left: auto;
+  font-size: .85rem;
+  color: var(--text);
+  font-family: monospace;
+  letter-spacing: .03em;
+}
+
 #session-chat-panel {
   flex: 1;
   display: flex;
@@ -588,6 +625,14 @@ aside h2 {
       <!-- Left: map panel -->
       <div id="session-map-panel">
         <div id="session-map"></div>
+        <div id="sim-controls" style="display:none;">
+          <button class="sim-btn" id="sim-btn-bwd10" onclick="setSimMode('bwd10')" title="Fast backward 10×">⏪</button>
+          <button class="sim-btn" id="sim-btn-bwd"   onclick="setSimMode('bwd')"   title="Backward">◀</button>
+          <button class="sim-btn" id="sim-btn-fwd"   onclick="setSimMode('fwd')"   title="Forward / Pause">▶</button>
+          <button class="sim-btn" id="sim-btn-fwd10" onclick="setSimMode('fwd10')" title="Fast forward 10×">⏩</button>
+          <span id="sim-speed-label"></span>
+          <span id="sim-time-display">🕐 0:00</span>
+        </div>
       </div>
 
       <div class="resize-handle" id="map-resize"></div>
@@ -856,8 +901,19 @@ let previewDestMarker  = null;
 let routeCoords        = null;   // [[lon,lat],...] loaded from localStorage
 let routeDistM         = 0;      // meters traveled along route from origin
 let routeCurrentPos    = null;   // {lat,lon,bearing} at current position (updated on movement)
-let routeTraveledLayer = null;   // gray polyline behind current position
+let routeTraveledLayer = null;   // cyan polyline behind current position
 let routeAheadLayer    = null;   // blue polyline ahead of current position
+let routeStreets       = [];     // ordered street names from session (for speed estimation)
+
+// ── Simulation state ───────────────────────────────────────────────────────
+let simMode          = 'stopped'; // 'stopped'|'fwd'|'bwd'|'fwd10'|'bwd10'
+let simInterval      = null;
+let simTimeSec       = 0;         // simulated elapsed seconds along route
+let simPassedStops   = new Set(); // stop-sign keys already triggered this forward pass
+let simStopUntilReal = 0;         // Date.now() value when stop-sign pause ends
+
+const SIM_TICK_MS      = 100;   // real-time interval between ticks
+const SIM_STOP_PAUSE_S = 3;     // simulated seconds to pause at a stop sign
 
 // ── Map helpers ──────────────────────────────────────────────────────────
 function makeHeadingIcon(bearing) {
@@ -1043,6 +1099,139 @@ function splitRouteAtDist(distM) {
   return { traveled, ahead };
 }
 
+// ── Simulation engine ─────────────────────────────────────────────────────
+
+function simStreetMph() {
+  if (!routeStreets || routeStreets.length === 0) return 25;
+  const total = routeTotalM();
+  if (total <= 0) return 25;
+  const idx = Math.min(Math.floor((routeDistM / total) * routeStreets.length), routeStreets.length - 1);
+  const name = (routeStreets[idx] || '').toLowerCase();
+  if (/freeway|highway|\bi-\d|\bus-\d|\bca-\d|expressway|motorway/.test(name)) return 65;
+  if (/\bavenue\b|\bblvd\b|\bboulevard\b/.test(name)) return 35;
+  if (/\broad\b|\brdway\b|\bdrive\b|\bparkway\b|\bpkwy\b/.test(name)) return 30;
+  return 25;
+}
+
+function simSpeedMps() { return simStreetMph() * 0.44704; }
+
+function findAlongRouteDist(olat, olon) {
+  if (!routeCoords || routeCoords.length < 2) return null;
+  let minPerp = Infinity, bestAlong = 0, cumDist = 0;
+  for (let i = 0; i < routeCoords.length - 1; i++) {
+    const [lon1, lat1] = routeCoords[i], [lon2, lat2] = routeCoords[i + 1];
+    const segLen = haversineM(lat1, lon1, lat2, lon2);
+    const dx = lon2 - lon1, dy = lat2 - lat1, len2 = dx*dx + dy*dy;
+    const t = len2 > 0 ? Math.max(0, Math.min(1, ((olon-lon1)*dx + (olat-lat1)*dy) / len2)) : 0;
+    const d = haversineM(olat, olon, lat1 + t*dy, lon1 + t*dx);
+    if (d < minPerp) { minPerp = d; bestAlong = cumDist + t * segLen; }
+    cumDist += segLen;
+  }
+  return minPerp < 50 ? bestAlong : null;
+}
+
+function checkStopSignCrossed(fromDist, toDist) {
+  if (!allSessionSources || allSessionSources.length === 0) return false;
+  for (const obj of allSessionSources) {
+    const t = (obj.type || obj.sub_type || '').toLowerCase();
+    if (!t.includes('stop')) continue;
+    const olat = obj._lat ?? obj.lat, olon = obj._lon ?? obj.lon;
+    if (olat == null || olon == null) continue;
+    const key = `${Math.round(olat * 1e4)},${Math.round(olon * 1e4)}`;
+    if (simPassedStops.has(key)) continue;
+    const d = findAlongRouteDist(olat, olon);
+    if (d !== null && d > fromDist && d <= toDist) { simPassedStops.add(key); return true; }
+  }
+  return false;
+}
+
+function simTick() {
+  if (!routeCoords) { setSimMode('stopped'); return; }
+  const total = routeTotalM();
+  if (total <= 0) { setSimMode('stopped'); return; }
+
+  const isBack  = simMode === 'bwd' || simMode === 'bwd10';
+  const isFast  = simMode === 'fwd10' || simMode === 'bwd10';
+  const mult    = isFast ? 10 : 1;
+  const dir     = isBack ? -1 : 1;
+  const realSec = SIM_TICK_MS / 1000;
+  const simSec  = realSec * mult;
+
+  // Stop-sign pause (forward only)
+  if (!isBack && Date.now() < simStopUntilReal) {
+    simTimeSec += simSec;
+    updateSimTime();
+    return;
+  }
+
+  const deltaDist = simSpeedMps() * simSec * dir;
+  const newDist   = Math.max(0, Math.min(total, routeDistM + deltaDist));
+
+  if (!isBack) {
+    if (checkStopSignCrossed(routeDistM, newDist)) {
+      simStopUntilReal = Date.now() + (SIM_STOP_PAUSE_S / mult) * 1000;
+    }
+  }
+
+  updateRouteDisplay(newDist);
+  simTimeSec = Math.max(0, simTimeSec + simSec * dir);
+  updateSimTime();
+  updateSimSpeedLabel();
+
+  if ((isBack && newDist <= 0) || (!isBack && newDist >= total)) {
+    if (!isBack) {
+      const destName = document.getElementById('session-dest-addr')?.textContent || 'your destination';
+      const ts = new Date().toISOString();
+      const msg = `You have arrived at ${destName}.`;
+      appendMessage('assistant', msg, ts, true);
+      currentMessages.push({ role: 'assistant', content: msg, timestamp: ts });
+      saveChatLocal(currentSessionId, currentMessages);
+    }
+    setSimMode('stopped');
+  }
+}
+
+function setSimMode(mode) {
+  if (simInterval) { clearInterval(simInterval); simInterval = null; }
+  // Toggle: clicking the already-active mode stops
+  if (mode !== 'stopped' && simMode === mode) { simMode = 'stopped'; updateSimControls(); updateSimSpeedLabel(); return; }
+  if (mode === 'fwd' || mode === 'fwd10') simPassedStops = new Set(); // reset when going forward
+  simStopUntilReal = 0;
+  simMode = mode;
+  if (mode !== 'stopped') simInterval = setInterval(simTick, SIM_TICK_MS);
+  updateSimControls();
+  updateSimSpeedLabel();
+}
+
+function updateSimControls() {
+  ['bwd10','bwd','fwd','fwd10'].forEach(m => {
+    const btn = document.getElementById('sim-btn-' + m);
+    if (!btn) return;
+    btn.classList.toggle('active', simMode === m);
+  });
+  const fwd = document.getElementById('sim-btn-fwd');
+  if (fwd) fwd.textContent = simMode === 'fwd' ? '⏸' : '▶';
+  const bwd = document.getElementById('sim-btn-bwd');
+  if (bwd) bwd.textContent = simMode === 'bwd' ? '⏸' : '◀';
+}
+
+function updateSimTime() {
+  const s  = Math.max(0, Math.round(simTimeSec));
+  const m  = Math.floor(s / 60);
+  const ss = (s % 60).toString().padStart(2, '0');
+  const el = document.getElementById('sim-time-display');
+  if (el) el.textContent = `🕐 ${m}:${ss}`;
+}
+
+function updateSimSpeedLabel() {
+  const el = document.getElementById('sim-speed-label');
+  if (!el) return;
+  if (simMode === 'stopped') { el.textContent = ''; return; }
+  const mph  = simStreetMph();
+  const mult = (simMode === 'fwd10' || simMode === 'bwd10') ? '×10' : '×1';
+  el.textContent = `${mph} mph ${mult}`;
+}
+
 function wordToNum(s) {
   const words = {one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,
                  eleven:11,twelve:12,thirteen:13,fourteen:14,fifteen:15,
@@ -1078,7 +1267,8 @@ function initRouteTracking(session) {
   if (sessionRouteLayer)  { sessionRouteLayer.remove();  sessionRouteLayer  = null; }
   if (sessionDestMarker)  { sessionDestMarker.remove();  sessionDestMarker  = null; }
   const saved = localStorage.getItem(ROUTE_KEY(session.id));
-  if (!saved) return;
+  const simCtrl = document.getElementById('sim-controls');
+  if (!saved) { if (simCtrl) simCtrl.style.display = 'none'; return; }
   try { routeCoords = JSON.parse(saved); } catch(e) { console.warn('Route parse failed:', e); return; }
   routeCurrentPos = posAtDist(0);   // start of route
   const latLngs = routeCoords.map(c => [c[1], c[0]]);
@@ -1086,6 +1276,7 @@ function initRouteTracking(session) {
   if (session.dest_lat && session.dest_lon)
     sessionDestMarker = L.marker([session.dest_lat, session.dest_lon], {icon:makeDestIcon()}).addTo(sessionMap);
   sessionMap.fitBounds(routeAheadLayer.getBounds(), {padding:[20,20]});
+  if (simCtrl) simCtrl.style.display = 'flex';
 }
 
 function initSessionMap(lat, lon, bearing) {
@@ -1520,6 +1711,13 @@ function activateSession(session) {
   pendingLat = null; pendingLon = null; pendingBearing = null;
   pendingDestLat = null; pendingDestLon = null; pendingDestAddress = null;
   pendingRouteCoords = null;
+  // Load route streets for speed estimation
+  try { routeStreets = JSON.parse(session.route_streets_json || '[]'); } catch(e) { routeStreets = []; }
+  // Reset simulation
+  setSimMode('stopped');
+  simTimeSec = 0;
+  simPassedStops = new Set();
+  updateSimTime();
   showHeadingSlider();
 
   document.getElementById('session-addr').textContent    = session.address;
@@ -1570,6 +1768,8 @@ function activateSession(session) {
 function endSession() {
   currentSessionId = null;
   if (sessionMap) { sessionMap.remove(); sessionMap = null; sessionMarker = null; }
+  setSimMode('stopped');
+  simTimeSec = 0; routeStreets = [];
   routeCoords = null; routeDistM = 0; routeCurrentPos = null; routeTraveledLayer = null; routeAheadLayer = null;
   sessionEventMarkers = [];
   allSessionSources   = [];
