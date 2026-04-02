@@ -855,6 +855,7 @@ let previewDestMarker  = null;
 // ── Route-tracking state (simulated movement) ──────────────────────────────
 let routeCoords        = null;   // [[lon,lat],...] loaded from localStorage
 let routeDistM         = 0;      // meters traveled along route from origin
+let routeCurrentPos    = null;   // {lat,lon,bearing} at current position (updated on movement)
 let routeTraveledLayer = null;   // gray polyline behind current position
 let routeAheadLayer    = null;   // blue polyline ahead of current position
 
@@ -1043,7 +1044,9 @@ function splitRouteAtDist(distM) {
 }
 
 function wordToNum(s) {
-  const words = {one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10};
+  const words = {one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,
+                 eleven:11,twelve:12,thirteen:13,fourteen:14,fifteen:15,
+                 sixteen:16,seventeen:17,eighteen:18,nineteen:19,twenty:20};
   const n = parseInt(s, 10);
   return isNaN(n) ? (words[s.toLowerCase()] ?? NaN) : n;
 }
@@ -1062,13 +1065,14 @@ function updateRouteDisplay(newDistM) {
     routeTraveledLayer = L.polyline(traveled, {color:'#888888', weight:5, opacity:0.75}).addTo(sessionMap);
   if (ahead.length >= 2)
     routeAheadLayer    = L.polyline(ahead,    {color:'#1a56b0', weight:5, opacity:0.8 }).addTo(sessionMap);
-  sessionMarker.setLatLng([pos.lat, pos.lon]);
-  sessionMarker.setIcon(makeHeadingIcon(pos.bearing));
+  routeCurrentPos = pos;
+  if (sessionMarker) { sessionMarker.remove(); }
+  sessionMarker = L.marker([pos.lat, pos.lon], { icon: makeHeadingIcon(pos.bearing) }).addTo(sessionMap);
   sessionMap.panTo([pos.lat, pos.lon]);
 }
 
 function initRouteTracking(session) {
-  routeCoords = null; routeDistM = 0;
+  routeCoords = null; routeDistM = 0; routeCurrentPos = null;
   if (routeTraveledLayer) { routeTraveledLayer.remove(); routeTraveledLayer = null; }
   if (routeAheadLayer)    { routeAheadLayer.remove();    routeAheadLayer    = null; }
   if (sessionRouteLayer)  { sessionRouteLayer.remove();  sessionRouteLayer  = null; }
@@ -1076,6 +1080,7 @@ function initRouteTracking(session) {
   const saved = localStorage.getItem(ROUTE_KEY(session.id));
   if (!saved) return;
   try { routeCoords = JSON.parse(saved); } catch(e) { console.warn('Route parse failed:', e); return; }
+  routeCurrentPos = posAtDist(0);   // start of route
   const latLngs = routeCoords.map(c => [c[1], c[0]]);
   routeAheadLayer = L.polyline(latLngs, {color:'#1a56b0', weight:5, opacity:0.8}).addTo(sessionMap);
   if (session.dest_lat && session.dest_lon)
@@ -1565,7 +1570,7 @@ function activateSession(session) {
 function endSession() {
   currentSessionId = null;
   if (sessionMap) { sessionMap.remove(); sessionMap = null; sessionMarker = null; }
-  routeCoords = null; routeDistM = 0; routeTraveledLayer = null; routeAheadLayer = null;
+  routeCoords = null; routeDistM = 0; routeCurrentPos = null; routeTraveledLayer = null; routeAheadLayer = null;
   sessionEventMarkers = [];
   allSessionSources   = [];
   placedMarkerKeys    = new Set();
@@ -1681,9 +1686,9 @@ async function sendQuestion() {
   }
 
   // ── Movement commands: advance/back N blocks ──────────────────────────────
-  const ADVANCE_RE = /\b(advance|move\s+forward|go\s+forward|go\s+ahead|forward)\s+(\w+)\s+blocks?\b/i;
-  const BACK_RE    = /\b(back(?:ward)?|go\s+back|reverse|retreat)\s+(\w+)\s+blocks?\b/i;
-  const MOVE_RE    = /\bmove\s+(\w+)\s+blocks?\b/i;
+  const ADVANCE_RE = /\b(advance|move\s+forward|go\s+forward|go\s+ahead|forward)\s+(\w+)\s+block\w*\b/i;
+  const BACK_RE    = /\b(back(?:ward)?|go\s+back|reverse|retreat)\s+(\w+)\s+block\w*\b/i;
+  const MOVE_RE    = /\b(move)\s+(\w+)\s+block\w*\b/i;
   const advMatch   = ADVANCE_RE.test(question) ? question.match(ADVANCE_RE)
                    : (MOVE_RE.test(question)    ? question.match(MOVE_RE)    : null);
   const backMatch  = BACK_RE.test(question) ? question.match(BACK_RE) : null;
@@ -1700,6 +1705,14 @@ async function sendQuestion() {
     const match  = advMatch || backMatch;
     const rawNum = advMatch ? match[2] : match[2];
     const n      = wordToNum(rawNum);
+    if (isNaN(n) || n <= 0) {
+      const ts = new Date().toISOString();
+      const msg = `I didn't understand "${rawNum}" as a number of blocks. Try "advance 3 blocks" or "back two blocks".`;
+      appendMessage('assistant', msg, ts, true);
+      currentMessages.push({ role: 'assistant', content: msg, timestamp: ts });
+      saveChatLocal(currentSessionId, currentMessages);
+      return;
+    }
     if (!isNaN(n) && n > 0) {
       const isBack  = !!backMatch;
       const delta   = (n - 0.5) * 100;   // center of Nth block
@@ -1727,10 +1740,16 @@ async function sendQuestion() {
   showTyping();
 
   try {
+    const posPayload = (routeCurrentPos && routeDistM > 0) ? {
+      current_lat:    routeCurrentPos.lat,
+      current_lon:    routeCurrentPos.lon,
+      current_bearing: routeCurrentPos.bearing,
+      current_dist_m: routeDistM,
+    } : {};
     const r = await fetch(API_BASE + '/api/ask', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({session_id: currentSessionId, question})
+      body: JSON.stringify({session_id: currentSessionId, question, ...posPayload})
     });
     const d = await r.json();
     removeTyping();

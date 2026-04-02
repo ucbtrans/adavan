@@ -164,12 +164,29 @@ def api_ask():
     if not session:
         return jsonify({"error": "Session not found"}), 404
 
+    current_lat     = data.get("current_lat")
+    current_lon     = data.get("current_lon")
+    current_bearing = data.get("current_bearing")
+    current_dist_m  = data.get("current_dist_m")
+
+    if current_lat is not None and current_lon is not None:
+        from location import bearing_to_direction as _btd
+        loc_lat     = float(current_lat)
+        loc_lon     = float(current_lon)
+        loc_bearing = int(current_bearing) if current_bearing is not None else session["bearing"]
+        loc_bearing_dir = _btd(loc_bearing)
+    else:
+        loc_lat         = session["lat"]
+        loc_lon         = session["lon"]
+        loc_bearing     = session["bearing"]
+        loc_bearing_dir = session["bearing_direction"]
+
     location = {
         "address":           session["address"],
-        "lat":               session["lat"],
-        "lon":               session["lon"],
-        "bearing":           session["bearing"],
-        "bearing_direction": session["bearing_direction"],
+        "lat":               loc_lat,
+        "lon":               loc_lon,
+        "bearing":           loc_bearing,
+        "bearing_direction": loc_bearing_dir,
         "destination":       session.get("destination", ""),
         "checked_streets":   [],   # filled in after off-route search
     }
@@ -204,6 +221,21 @@ def api_ask():
             nearby = find_nearby_objects(location["lat"], location["lon"], objects)
     else:
         nearby = find_nearby_objects(location["lat"], location["lon"], objects)
+
+    # Adjust distances from current position (not route origin) when driver has moved
+    if current_dist_m is not None and float(current_dist_m) > 0:
+        dist_offset = float(current_dist_m)
+        adjusted = []
+        for obj in nearby:
+            raw = obj.get("_distance_m")
+            if raw is None:
+                adjusted.append(obj)
+                continue
+            adjusted_dist = raw - dist_offset
+            if adjusted_dist < -50:   # object is >50 m behind current position — skip
+                continue
+            adjusted.append({**obj, "_distance_m": round(max(0, adjusted_dist))})
+        nearby = adjusted
 
     # Merge objects from any off-route streets the user explicitly asked about
     mentioned = find_streets_mentioned(question, route_streets_list)
