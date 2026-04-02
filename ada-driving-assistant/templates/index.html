@@ -912,6 +912,7 @@ let simInterval      = null;
 let simTimeSec       = 0;         // simulated elapsed seconds along route
 let simPassedStops   = new Set(); // stop-sign keys already triggered this forward pass
 let simStopUntilReal = 0;         // Date.now() value when stop-sign pause ends
+let simCurrentSpeedFactor = 1;   // last effective speed factor (0 = fully stopped)
 
 let routeTrafficLights        = [];  // [{lat,lon,distM,phaseOffset,cycleG,cycleY,cycleR,cycleTotal}]
 let routeTrafficLightMarkers  = [];  // Leaflet markers, parallel to routeTrafficLights
@@ -1111,7 +1112,7 @@ function splitRouteAtDist(distM) {
 
 // ── Simulation engine ─────────────────────────────────────────────────────
 
-const FREEWAY_RE = /freeway|highway|\bi-\d|\bus-\d|\bca-\d|expressway|motorway/;
+const FREEWAY_RE = /freeway|highway|interstate|expressway|motorway|\bi[\s-]\d|\bus[\s-]\d|\bca[\s-]\d|\bsr[\s-]\d/i;
 
 function simStreetNameAt(distM) {
   if (!routeStreets || routeStreets.length === 0) return '';
@@ -1396,10 +1397,12 @@ function simTick() {
   const realSec = SIM_TICK_MS / 1000;
   const simSec  = realSec * mult;
 
-  // Stop-sign pause (forward only)
+  // Stop-sign / TL pause (forward only)
   if (!isBack && Date.now() < simStopUntilReal) {
+    simCurrentSpeedFactor = 0;
     simTimeSec += simSec;
     updateSimTime();
+    updateSimSpeedLabel();
     updateTrafficLightMarkers();
     return;
   }
@@ -1408,6 +1411,7 @@ function simTick() {
   const tlFactor  = isBack ? 1 : getTrafficLightSpeedFactor();
   const ssFactor  = isBack ? 1 : getStopSignSpeedFactor();
   const speedFactor = Math.min(tlFactor, ssFactor);
+  simCurrentSpeedFactor = speedFactor;
   const deltaDist = simSpeedMps() * simSec * dir * speedFactor;
   const newDist   = Math.max(0, Math.min(total, routeDistM + deltaDist));
 
@@ -1483,9 +1487,10 @@ function updateSimSpeedLabel() {
   const el = document.getElementById('sim-speed-label');
   if (!el) return;
   if (simMode === 'stopped') { el.textContent = ''; return; }
-  const mph  = simStreetMph();
-  const mult = (simMode === 'fwd10' || simMode === 'bwd10') ? '×10' : '×1';
-  el.textContent = `${mph} mph ${mult}`;
+  const baseMph   = simStreetMph();
+  const actualMph = Math.round(baseMph * simCurrentSpeedFactor);
+  const mult      = (simMode === 'fwd10' || simMode === 'bwd10') ? '×10' : '×1';
+  el.textContent  = `${actualMph} mph ${mult}`;
 }
 
 function simReset() {
