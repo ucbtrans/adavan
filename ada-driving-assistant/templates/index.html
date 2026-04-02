@@ -630,6 +630,7 @@ aside h2 {
           <button class="sim-btn" id="sim-btn-bwd"   onclick="setSimMode('bwd')"   title="Backward">◀</button>
           <button class="sim-btn" id="sim-btn-fwd"   onclick="setSimMode('fwd')"   title="Forward / Pause">▶</button>
           <button class="sim-btn" id="sim-btn-fwd10" onclick="setSimMode('fwd10')" title="Fast forward 10×">⏩</button>
+          <button class="sim-btn" id="sim-btn-reset" onclick="simReset()" title="Reset to origin">⏹</button>
           <span id="sim-speed-label"></span>
           <span id="sim-time-display">🕐 0:00</span>
         </div>
@@ -1230,6 +1231,16 @@ function updateSimSpeedLabel() {
   const mph  = simStreetMph();
   const mult = (simMode === 'fwd10' || simMode === 'bwd10') ? '×10' : '×1';
   el.textContent = `${mph} mph ${mult}`;
+}
+
+function simReset() {
+  setSimMode('stopped');
+  simTimeSec = 0;
+  simPassedStops = new Set();
+  simStopUntilReal = 0;
+  updateRouteDisplay(0);
+  updateSimTime();
+  updateSimSpeedLabel();
 }
 
 function wordToNum(s) {
