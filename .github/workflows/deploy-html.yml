@@ -1,0 +1,136 @@
+name: Deploy HTML
+
+# Triggers on any push to main that touches the web assets.
+# Mirrors deploy_html.sh: injects the API URL, uploads to both S3 buckets,
+# uploads static JSON assets, and invalidates both CloudFront distributions.
+#
+# Required GitHub Secrets (Settings → Secrets → Actions):
+#   AWS_ACCESS_KEY_ID       — IAM key with S3 + CloudFront + CloudFormation read access
+#   AWS_SECRET_ACCESS_KEY   — matching secret
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ada-driving-assistant/templates/index.html'
+      - 'ada-driving-assistant/addresses_pool.json'
+      - 'ada-driving-assistant/traffic_signals.json'
+      - 'ada-driving-assistant/stop_signs.json'
+
+jobs:
+  deploy:
+    name: Build & deploy to S3 + CloudFront
+    runs-on: ubuntu-latest
+
+    env:
+      REGION:       us-west-2
+      V1_BUCKET:    ada-driving-assistant-web-173479170210
+      V1_CF_DIST:   E3UTZPP7B7X64F
+      V2_CF_DIST:   E3KE0JK3Y50REK
+      STACK_NAME:   ada-driving-assistant
+
+    steps:
+      # ── 1. Check out source ─────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── 2. Configure AWS credentials ────────────────────────────────────
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ env.REGION }}
+
+      # ── 3. Resolve runtime values from CloudFormation ───────────────────
+      - name: Fetch API URL and v2 bucket from CloudFormation
+        run: |
+          API_URL=$(aws cloudformation describe-stacks \
+            --stack-name "$STACK_NAME" --region "$REGION" \
+            --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue" \
+            --output text)
+
+          WEB_BUCKET_V2=$(aws cloudformation describe-stacks \
+            --stack-name "$STACK_NAME" --region "$REGION" \
+            --query "Stacks[0].Outputs[?OutputKey=='WebBucketNameV2'].OutputValue" \
+            --output text)
+
+          echo "API_URL=$API_URL"           >> "$GITHUB_ENV"
+          echo "WEB_BUCKET_V2=$WEB_BUCKET_V2" >> "$GITHUB_ENV"
+
+      # ── 4. Inject API URL into HTML ──────────────────────────────────────
+      - name: Prepare HTML files
+        working-directory: ada-driving-assistant
+        env:
+          API_URL: ${{ env.API_URL }}
+        run: |
+          # v1: inject API URL only
+          python3 - <<'PYEOF'
+          import os
+          api_url = os.environ["API_URL"]
+          src = open("templates/index.html", encoding="utf-8").read()
+          src = src.replace("window.ADA_API_BASE || ''", f"'{api_url}'")
+          open("_deploy_index.html", "w", encoding="utf-8").write(src)
+          PYEOF
+
+          # v2: inject API URL + v2.1 label
+          python3 - <<'PYEOF'
+          import os
+          api_url = os.environ["API_URL"]
+          src = open("templates/index.html", encoding="utf-8").read()
+          src = src.replace("window.ADA_API_BASE || ''", f"'{api_url}'")
+          src = src.replace(
+              "<title>ADA Driving Assistant</title>",
+              "<title>ADA Driving Assistant v2.1</title>")
+          src = src.replace(
+              "<h1>ADA <span>Driving Assistant</span></h1>",
+              '<h1>ADA <span>Driving Assistant</span> '
+              '<span style="font-size:0.7rem;color:var(--muted);font-weight:400;">v2.1</span></h1>')
+          open("_deploy_index_v2.html", "w", encoding="utf-8").write(src)
+          PYEOF
+
+      # ── 5. Upload HTML ───────────────────────────────────────────────────
+      - name: Upload index.html to S3
+        working-directory: ada-driving-assistant
+        run: |
+          aws s3 cp _deploy_index.html \
+            "s3://$V1_BUCKET/index.html" \
+            --content-type "text/html; charset=utf-8" \
+            --cache-control "no-cache"
+
+          aws s3 cp _deploy_index_v2.html \
+            "s3://$WEB_BUCKET_V2/index.html" \
+            --content-type "text/html; charset=utf-8" \
+            --cache-control "no-cache"
+
+      # ── 6. Upload static JSON assets (only if present in repo) ───────────
+      - name: Upload static JSON assets
+        working-directory: ada-driving-assistant
+        run: |
+          for f in addresses_pool.json traffic_signals.json stop_signs.json; do
+            if [[ -f "$f" ]]; then
+              echo "==> $f"
+              aws s3 cp "$f" "s3://$V1_BUCKET/$f" \
+                --content-type "application/json" \
+                --cache-control "public, max-age=86400"
+              aws s3 cp "$f" "s3://$WEB_BUCKET_V2/$f" \
+                --content-type "application/json" \
+                --cache-control "public, max-age=86400"
+            fi
+          done
+
+      # ── 7. Invalidate CloudFront caches ──────────────────────────────────
+      - name: Invalidate CloudFront
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "$V1_CF_DIST" --paths "/*" \
+            --output text --query "Invalidation.Id"
+          aws cloudfront create-invalidation \
+            --distribution-id "$V2_CF_DIST" --paths "/*" \
+            --output text --query "Invalidation.Id"
+
+      # ── 8. Clean up temp files ───────────────────────────────────────────
+      - name: Cleanup
+        if: always()
+        working-directory: ada-driving-assistant
+        run: rm -f _deploy_index.html _deploy_index_v2.html
