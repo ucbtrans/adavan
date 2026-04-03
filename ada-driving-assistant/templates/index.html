@@ -3189,19 +3189,52 @@ let _fleetTickBusy    = false;
 
 let vans = [];   // array of van state objects
 
-// ── Van icon ──────────────────────────────────────────────────
+// ── Van icon (canvas-colorized PNG) ───────────────────────────
+
+let _vanBaseImage  = null;   // loaded HTMLImageElement
+let _vanColorCache = {};     // color → data-URL
+
+function _loadVanImage() {
+  if (_vanBaseImage) return Promise.resolve(_vanBaseImage);
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload  = () => { _vanBaseImage = img; resolve(img); };
+    img.onerror = () => resolve(null);
+    img.src = '/van_top.png';
+  });
+}
+
+function _colorizeVan(img, color) {
+  if (_vanColorCache[color]) return _vanColorCache[color];
+  const W = 22, H = 34;
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  // 1. Draw original (white van with transparency)
+  ctx.drawImage(img, 0, 0, W, H);
+  // 2. Multiply blend: white×color=color, dark outlines stay dark
+  ctx.globalCompositeOperation = 'multiply';
+  ctx.fillStyle = color;
+  ctx.fillRect(0, 0, W, H);
+  // 3. Clip to original alpha so transparent areas stay transparent
+  ctx.globalCompositeOperation = 'destination-in';
+  ctx.drawImage(img, 0, 0, W, H);
+  const url = canvas.toDataURL();
+  _vanColorCache[color] = url;
+  return url;
+}
 
 function makeVanIcon(num, color, bearing) {
   const rot = bearing || 0;
+  const src = _vanBaseImage ? _colorizeVan(_vanBaseImage, color) : '/van_top.png';
   return L.divIcon({
     className: '',
-    html: `<div style="transform:rotate(${rot}deg);transform-origin:11px 17px;width:22px;height:34px;position:relative;isolation:isolate;">
-      <img src="/van_top.png" style="width:22px;height:34px;display:block;"/>
-      <div style="position:absolute;inset:0;background:${color};mix-blend-mode:multiply;border-radius:4px;"></div>
+    html: `<div style="transform:rotate(${rot}deg);transform-origin:11px 17px;width:22px;height:34px;position:relative;">
+      <img src="${src}" style="width:22px;height:34px;display:block;"/>
       <span style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
                    font-size:8px;font-weight:700;color:#fff;line-height:1;
                    text-shadow:0 0 3px rgba(0,0,0,0.95),0 0 6px rgba(0,0,0,0.7);
-                   pointer-events:none;mix-blend-mode:normal;">${num}</span>
+                   pointer-events:none;">${num}</span>
     </div>`,
     iconSize:   [22, 34],
     iconAnchor: [11, 17],
@@ -3324,6 +3357,11 @@ function initFleetMap() {
     attribution: '© OpenStreetMap © CARTO',
     maxZoom: 19,
   }).addTo(fleetMap);
+  // Pre-load the van image; once ready, refresh all markers with colorized icons
+  _loadVanImage().then(img => {
+    if (!img) return;
+    vans.forEach(v => updateVanMarker(v));
+  });
 }
 
 function updateVanMarker(van) {
