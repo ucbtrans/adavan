@@ -730,7 +730,7 @@ aside h2 {
 <header>
   <div style="display:flex;align-items:center;gap:10px;">
     <img src="/ada_logo.jpg" style="height:40px;border-radius:6px;display:block;" alt="ADA Logo"/>
-    <h1>ADA <span>Driving Assistant</span></h1>
+    <h1>ADA <span>Driving Assistant</span> <span style="font-size:0.7rem;color:var(--muted);font-weight:400;">v2.2</span></h1>
   </div>
   <div style="display:flex;align-items:center;gap:12px;">
     <div id="wake-indicator">
@@ -3193,20 +3193,40 @@ let vans = [];   // array of van state objects
 
 function makeVanIcon(num, color, bearing) {
   const rot = bearing || 0;
+  const svg = `<svg width="36" height="46" viewBox="0 0 36 46" xmlns="http://www.w3.org/2000/svg">
+    <!-- drop shadow -->
+    <rect x="7" y="6" width="24" height="38" rx="5" fill="rgba(0,0,0,0.22)"/>
+    <!-- body -->
+    <rect x="5" y="2" width="26" height="40" rx="5" fill="${color}" stroke="rgba(0,0,0,0.35)" stroke-width="1"/>
+    <!-- windshield (front, top) -->
+    <rect x="8" y="3" width="20" height="12" rx="2.5" fill="rgba(150,215,255,0.72)"/>
+    <line x1="9" y1="4" x2="12" y2="13" stroke="rgba(255,255,255,0.55)" stroke-width="1.5" stroke-linecap="round"/>
+    <!-- hood divider line -->
+    <rect x="5" y="17" width="26" height="1.5" fill="rgba(0,0,0,0.2)"/>
+    <!-- side windows -->
+    <rect x="5" y="20" width="2.5" height="9" rx="1" fill="rgba(150,215,255,0.55)"/>
+    <rect x="28.5" y="20" width="2.5" height="9" rx="1" fill="rgba(150,215,255,0.55)"/>
+    <!-- rear window (bottom) -->
+    <rect x="9" y="36" width="18" height="5" rx="1.5" fill="rgba(150,215,255,0.45)"/>
+    <!-- headlights (front corners) -->
+    <rect x="6" y="2.5" width="7" height="3.5" rx="1.2" fill="rgba(255,255,190,0.92)"/>
+    <rect x="23" y="2.5" width="7" height="3.5" rx="1.2" fill="rgba(255,255,190,0.92)"/>
+    <!-- tail lights (rear corners) -->
+    <rect x="6" y="39" width="7" height="2.5" rx="1" fill="rgba(255,60,60,0.75)"/>
+    <rect x="23" y="39" width="7" height="2.5" rx="1" fill="rgba(255,60,60,0.75)"/>
+    <!-- side mirrors -->
+    <rect x="2" y="10" width="3" height="5" rx="1" fill="${color}" stroke="rgba(0,0,0,0.3)" stroke-width="0.7"/>
+    <rect x="31" y="10" width="3" height="5" rx="1" fill="${color}" stroke="rgba(0,0,0,0.3)" stroke-width="0.7"/>
+    <!-- van number -->
+    <text x="18" y="32" text-anchor="middle" font-family="Arial,sans-serif"
+          font-size="11" font-weight="bold" fill="white"
+          paint-order="stroke" stroke="rgba(0,0,0,0.65)" stroke-width="2.5">${num}</text>
+  </svg>`;
   return L.divIcon({
     className: '',
-    html: `<div style="width:34px;height:34px;position:relative;">
-      <svg width="34" height="34" viewBox="0 0 34 34" xmlns="http://www.w3.org/2000/svg"
-           style="transform:rotate(${rot}deg);transform-origin:17px 17px;display:block;">
-        <circle cx="17" cy="17" r="15" fill="${color}" stroke="rgba(255,255,255,0.85)" stroke-width="2"/>
-        <polygon points="17,5 21,14 17,12 13,14" fill="rgba(255,255,255,0.92)"/>
-      </svg>
-      <span style="position:absolute;top:0;left:0;width:34px;height:34px;display:flex;align-items:center;
-                   justify-content:center;font-size:10px;font-weight:700;color:#fff;
-                   text-shadow:0 0 3px rgba(0,0,0,0.8);pointer-events:none;padding-top:4px;">${num}</span>
-    </div>`,
-    iconSize:   [34, 34],
-    iconAnchor: [17, 17],
+    html: `<div style="transform:rotate(${rot}deg);transform-origin:18px 21px;width:36px;height:46px;">${svg}</div>`,
+    iconSize:   [36, 46],
+    iconAnchor: [18, 21],
   });
 }
 
