@@ -3181,6 +3181,7 @@ const NUM_DESTS     = 10;
 const FLEET_TICK_MS = 100;
 
 let fleetMap          = null;
+let fleetTileLayer    = null;
 let fleetMode         = 'stopped';
 let fleetInterval     = null;
 let fleetTimeSec      = 0;
@@ -3367,7 +3368,7 @@ async function loadVanRoute(van) {
 function initFleetMap() {
   if (fleetMap) return;
   fleetMap = L.map('fleet-map', { zoomControl: true }).setView([37.87, -122.28], 12);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  fleetTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
     attribution: '© OpenStreetMap © CARTO',
     maxZoom: 19,
   }).addTo(fleetMap);
@@ -3376,6 +3377,22 @@ function initFleetMap() {
     if (!img) return;
     vans.forEach(v => updateVanMarker(v));
   });
+}
+
+function setFleetMapTheme(theme) {
+  if (!fleetMap) return;
+  if (fleetTileLayer) { fleetMap.removeLayer(fleetTileLayer); fleetTileLayer = null; }
+  if (theme === 'light') {
+    fleetTileLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 19,
+    }).addTo(fleetMap);
+  } else {
+    fleetTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '© OpenStreetMap © CARTO',
+      maxZoom: 19,
+    }).addTo(fleetMap);
+  }
 }
 
 function updateVanMarker(van) {
@@ -3405,6 +3422,7 @@ async function fleetTick() {
     for (const van of vans) {
       if (van.fetchingRoute) continue;
       if (!van.routeCoords)  continue;
+      if (van.paused)        continue;
       const total = vanRouteTotalM(van);
       if (total <= 0) continue;
 
@@ -3446,7 +3464,7 @@ function fleetSetMode(mode) {
   }
   fleetMode = mode;
   if (mode !== 'stopped') {
-    vans.forEach(v => { v.status = 'running'; });
+    vans.forEach(v => { v.status = v.paused ? 'stopped' : 'running'; });
     fleetInterval = setInterval(() => { fleetTick(); }, FLEET_TICK_MS);
   } else {
     vans.forEach(v => { v.status = 'stopped'; });
@@ -3460,6 +3478,7 @@ function fleetReset() {
   fleetSetMode('stopped');
   fleetTimeSec = 0;
   vans.forEach(v => {
+    v.paused = false;
     v.distM = 0;
     if (v.destinations.length > 0) {
       v.lat = v.destinations[0].lat;
@@ -3610,9 +3629,91 @@ function handleFleetKey(e) {
 function sendFleetQuestion() {
   const inp = document.getElementById('fleet-question-input');
   if (!inp || !inp.value.trim()) return;
-  appendFleetMessage('user', inp.value.trim());
-  appendFleetMessage('system', 'Fleet commands coming soon.');
+  const raw = inp.value.trim();
   inp.value = '';
+  appendFleetMessage('user', raw);
+
+  const cmd = raw.toLowerCase().replace(/\s+/g, ' ').trim();
+
+  // ── Map theme ────────────────────────────────────────────────
+  if (/light/.test(cmd) && /map|theme/.test(cmd) || cmd === 'light') {
+    setFleetMapTheme('light');
+    return appendFleetMessage('system', 'Map switched to light theme.');
+  }
+  if (/dark/.test(cmd) && /map|theme/.test(cmd) || cmd === 'dark') {
+    setFleetMapTheme('dark');
+    return appendFleetMessage('system', 'Map switched to dark theme.');
+  }
+
+  // ── Per-van commands: stop 7 / start 3 / restart 6 ──────────
+  const vanCmd = cmd.match(/^(stop|start|restart)\s+(\d+)$/);
+  if (vanCmd) {
+    const action = vanCmd[1];
+    const vid    = parseInt(vanCmd[2]);
+    const van    = vans.find(v => v.id === vid);
+    if (!van) return appendFleetMessage('system', `Van ${vid} not found.`);
+
+    if (action === 'stop') {
+      van.paused = true;
+      van.status = 'stopped';
+      renderVanList();
+      return appendFleetMessage('system', `Van ${vid} stopped.`);
+    }
+    if (action === 'start') {
+      van.paused = false;
+      van.status = 'running';
+      if (fleetMode === 'stopped') fleetSetMode('fwd');
+      renderVanList();
+      return appendFleetMessage('system', `Van ${vid} started.`);
+    }
+    if (action === 'restart') {
+      van.paused = false;
+      van.distM  = 0;
+      van.currentDestIdx = 0;
+      if (van.destinations.length > 0) {
+        van.lat = van.destinations[0].lat;
+        van.lon = van.destinations[0].lon;
+        van.bearing = 0;
+        loadVanRoute(van).then(() => { updateVanMarker(van); renderVanList(); });
+      }
+      van.status = 'running';
+      if (fleetMode === 'stopped') fleetSetMode('fwd');
+      renderVanList();
+      return appendFleetMessage('system', `Van ${vid} restarted from origin.`);
+    }
+  }
+
+  // ── Fleet-wide commands ──────────────────────────────────────
+  if (cmd === 'stop') {
+    vans.forEach(v => { v.paused = false; });
+    fleetSetMode('stopped');
+    return appendFleetMessage('system', 'All vans stopped.');
+  }
+  if (cmd === 'start' || cmd === 'start 1x') {
+    vans.forEach(v => { v.paused = false; });
+    fleetSetMode('fwd');
+    return appendFleetMessage('system', 'All vans started.');
+  }
+  if (cmd === 'start 10x' || cmd === 'start fast') {
+    vans.forEach(v => { v.paused = false; });
+    fleetSetMode('fwd10');
+    return appendFleetMessage('system', 'All vans started at 10×.');
+  }
+  if (cmd === 'restart' || cmd === 'restart 1x') {
+    fleetReset();
+    fleetSetMode('fwd');
+    return appendFleetMessage('system', 'All vans restarted.');
+  }
+  if (cmd === 'restart 10x' || cmd === 'restart fast') {
+    fleetReset();
+    fleetSetMode('fwd10');
+    return appendFleetMessage('system', 'All vans restarted at 10×.');
+  }
+
+  // ── Help / unknown ───────────────────────────────────────────
+  appendFleetMessage('system',
+    'Commands: stop · start · start 10x · restart · restart 10x · ' +
+    'stop N · start N · restart N · light map · dark map');
 }
 
 // ── Tab switching ──────────────────────────────────────────────
