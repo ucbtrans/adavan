@@ -73,7 +73,7 @@ jobs:
           open("_deploy_index.html", "w", encoding="utf-8").write(src)
           PYEOF
 
-          # v2: inject API URL + v2.1 label
+          # v2: inject API URL + v2.2 label
           python3 - <<'PYEOF'
           import os
           api_url = os.environ["API_URL"]
@@ -81,11 +81,11 @@ jobs:
           src = src.replace("window.ADA_API_BASE || ''", f"'{api_url}'")
           src = src.replace(
               "<title>ADA Driving Assistant</title>",
-              "<title>ADA Driving Assistant v2.1</title>")
+              "<title>ADA Driving Assistant v2.2</title>")
           src = src.replace(
               "<h1>ADA <span>Driving Assistant</span></h1>",
               '<h1>ADA <span>Driving Assistant</span> '
-              '<span style="font-size:0.7rem;color:var(--muted);font-weight:400;">v2.1</span></h1>')
+              '<span style="font-size:0.7rem;color:var(--muted);font-weight:400;">v2.2</span></h1>')
           open("_deploy_index_v2.html", "w", encoding="utf-8").write(src)
           PYEOF
 
