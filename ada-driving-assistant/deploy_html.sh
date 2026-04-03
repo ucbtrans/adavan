@@ -100,13 +100,13 @@ if [[ -f "stop_signs.json" ]]; then
     --cache-control "public, max-age=86400"
 fi
 
-if [[ -f "Modern white van from above.png" ]]; then
+if [[ -f "White van with trtansparent backgroud.png" ]]; then
   echo "==> Uploading van_top.png..."
-  aws s3 cp "Modern white van from above.png" \
+  aws s3 cp "White van with trtansparent backgroud.png" \
     "s3://$V1_BUCKET/van_top.png" \
     --content-type "image/png" \
     --cache-control "public, max-age=2592000"
-  aws s3 cp "Modern white van from above.png" \
+  aws s3 cp "White van with trtansparent backgroud.png" \
     "s3://$WEB_BUCKET_V2/van_top.png" \
     --content-type "image/png" \
     --cache-control "public, max-age=2592000"

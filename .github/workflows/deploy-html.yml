@@ -17,6 +17,7 @@ on:
       - 'ada-driving-assistant/traffic_signals.json'
       - 'ada-driving-assistant/stop_signs.json'
       - 'ada-driving-assistant/Modern white van from above.png'
+      - 'ada-driving-assistant/White van with trtansparent backgroud.png'
 
 jobs:
   deploy:
@@ -119,12 +120,12 @@ jobs:
                 --cache-control "public, max-age=86400"
             fi
           done
-          if [[ -f "Modern white van from above.png" ]]; then
+          if [[ -f "White van with trtansparent backgroud.png" ]]; then
             echo "==> van_top.png"
-            aws s3 cp "Modern white van from above.png" "s3://$V1_BUCKET/van_top.png" \
+            aws s3 cp "White van with trtansparent backgroud.png" "s3://$V1_BUCKET/van_top.png" \
               --content-type "image/png" \
               --cache-control "public, max-age=2592000"
-            aws s3 cp "Modern white van from above.png" "s3://$WEB_BUCKET_V2/van_top.png" \
+            aws s3 cp "White van with trtansparent backgroud.png" "s3://$WEB_BUCKET_V2/van_top.png" \
               --content-type "image/png" \
               --cache-control "public, max-age=2592000"
           fi
