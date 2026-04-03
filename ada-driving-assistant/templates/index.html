@@ -666,6 +666,18 @@ aside h2 {
 }
 .van-badge.running { background: rgba(63,185,80,0.2); color: #3fb950; }
 .van-badge.stopped { background: rgba(139,148,158,0.15); color: var(--muted); }
+.van-toggle-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: .65rem;
+  padding: 2px 6px;
+  flex-shrink: 0;
+  line-height: 1.4;
+}
+.van-toggle-btn:hover { background: rgba(88,166,255,0.12); }
 
 /* Van modal */
 #van-modal {
@@ -917,6 +929,7 @@ aside h2 {
     </div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px;">
       <button class="btn btn-ghost" onclick="closeVanModal()">Cancel</button>
+      <button class="btn btn-ghost" id="van-modal-toggle-btn" onclick="toggleVanPause(fleetModalVanId)">▶ Start</button>
       <button class="btn btn-primary" onclick="saveVanConfig()">💾 Save to S3</button>
     </div>
   </div>
@@ -3182,6 +3195,8 @@ const FLEET_TICK_MS = 100;
 
 let fleetMap          = null;
 let fleetTileLayer    = null;
+let fleetMapTheme     = 'light';
+let fleetShowRoutes   = true;
 let fleetMode         = 'stopped';
 let fleetInterval     = null;
 let fleetTimeSec      = 0;
@@ -3242,18 +3257,70 @@ function _colorizeVan(img, color) {
 function makeVanIcon(num, color, bearing) {
   const rot = bearing || 0;
   const src = _vanBaseImage ? _colorizeVan(_vanBaseImage, color) : '/van_top.png';
+  const isLight = fleetMapTheme === 'light';
+  const numColor  = isLight ? '#111' : '#fff';
+  const numShadow = isLight
+    ? '0 0 3px rgba(255,255,255,0.95),0 0 5px rgba(255,255,255,0.8)'
+    : '0 0 3px rgba(0,0,0,0.95),0 0 6px rgba(0,0,0,0.7)';
   return L.divIcon({
     className: '',
     html: `<div style="transform:rotate(${rot}deg);transform-origin:11px 17px;width:22px;height:34px;position:relative;">
       <img src="${src}" style="width:22px;height:34px;display:block;"/>
       <span style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
-                   font-size:12px;font-weight:700;color:#fff;line-height:1;
-                   text-shadow:0 0 3px rgba(0,0,0,0.95),0 0 6px rgba(0,0,0,0.7);
+                   font-size:12px;font-weight:700;color:${numColor};line-height:1;
+                   text-shadow:${numShadow};
                    pointer-events:none;">${num}</span>
     </div>`,
     iconSize:   [22, 34],
     iconAnchor: [11, 17],
   });
+}
+
+// ── Van route polylines ────────────────────────────────────────
+
+function vanSplitCoords(van) {
+  // Returns { behind:[[lat,lon],...], ahead:[[lat,lon],...] } split at van.distM
+  const coords = van.routeCoords;
+  if (!coords || coords.length < 2) return { behind: [], ahead: [] };
+  let walked = 0;
+  const behind = [[coords[0][1], coords[0][0]]];
+  for (let i = 0; i < coords.length - 1; i++) {
+    const [lon1, lat1] = coords[i], [lon2, lat2] = coords[i + 1];
+    const seg = haversineM(lat1, lon1, lat2, lon2);
+    if (walked + seg >= van.distM) {
+      const t   = seg > 0 ? Math.min(1, (van.distM - walked) / seg) : 0;
+      const sp  = [lat1 + t * (lat2 - lat1), lon1 + t * (lon2 - lon1)];
+      behind.push(sp);
+      const ahead = [sp, ...coords.slice(i + 1).map(([lo, la]) => [la, lo])];
+      return { behind, ahead };
+    }
+    behind.push([lat2, lon2]);
+    walked += seg;
+  }
+  return { behind: coords.map(([lo, la]) => [la, lo]), ahead: [] };
+}
+
+function updateVanRouteLines(van) {
+  if (!fleetShowRoutes || !fleetMap || !van.routeCoords || van.lat === null) {
+    if (van.polyBehind) { fleetMap && fleetMap.removeLayer(van.polyBehind); van.polyBehind = null; }
+    if (van.polyAhead)  { fleetMap && fleetMap.removeLayer(van.polyAhead);  van.polyAhead  = null; }
+    return;
+  }
+  const { behind, ahead } = vanSplitCoords(van);
+  if (behind.length >= 2) {
+    if (!van.polyBehind) van.polyBehind = L.polyline(behind, { color: van.color, weight: 2, opacity: 0.35 }).addTo(fleetMap);
+    else van.polyBehind.setLatLngs(behind);
+  } else if (van.polyBehind) { fleetMap.removeLayer(van.polyBehind); van.polyBehind = null; }
+
+  if (ahead.length >= 2) {
+    if (!van.polyAhead) van.polyAhead = L.polyline(ahead, { color: van.color, weight: 3, opacity: 0.85 }).addTo(fleetMap);
+    else van.polyAhead.setLatLngs(ahead);
+  } else if (van.polyAhead) { fleetMap.removeLayer(van.polyAhead); van.polyAhead = null; }
+}
+
+function setFleetShowRoutes(show) {
+  fleetShowRoutes = show;
+  vans.forEach(v => updateVanRouteLines(v));
 }
 
 // ── Van helpers ────────────────────────────────────────────────
@@ -3315,6 +3382,9 @@ function initFleetVans() {
     bearing:        0,
     marker:         null,
     fetchingRoute:  false,
+    paused:         false,
+    polyBehind:     null,
+    polyAhead:      null,
   }));
 }
 
@@ -3360,6 +3430,7 @@ async function loadVanRoute(van) {
       van.routeCoords  = null;
     }
     van.distM = 0;
+    updateVanRouteLines(van);
   } finally {
     van.fetchingRoute = false;
   }
@@ -3368,10 +3439,11 @@ async function loadVanRoute(van) {
 function initFleetMap() {
   if (fleetMap) return;
   fleetMap = L.map('fleet-map', { zoomControl: true }).setView([37.87, -122.28], 12);
-  fleetTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-    attribution: '© OpenStreetMap © CARTO',
+  fleetTileLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     maxZoom: 19,
   }).addTo(fleetMap);
+  fleetMapTheme = 'light';
   // Pre-load the van image; once ready, refresh all markers with colorized icons
   _loadVanImage().then(img => {
     if (!img) return;
@@ -3381,6 +3453,7 @@ function initFleetMap() {
 
 function setFleetMapTheme(theme) {
   if (!fleetMap) return;
+  fleetMapTheme = theme;
   if (fleetTileLayer) { fleetMap.removeLayer(fleetTileLayer); fleetTileLayer = null; }
   if (theme === 'light') {
     fleetTileLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -3393,10 +3466,12 @@ function setFleetMapTheme(theme) {
       maxZoom: 19,
     }).addTo(fleetMap);
   }
+  vans.forEach(v => updateVanMarker(v));  // refresh icon number color
 }
 
 function updateVanMarker(van) {
   if (!fleetMap || van.lat === null) return;
+  updateVanRouteLines(van);
   const icon = makeVanIcon(van.id, van.color, van.bearing);
   if (!van.marker) {
     van.marker = L.marker([van.lat, van.lon], { icon, zIndexOffset: 500 }).addTo(fleetMap);
@@ -3521,16 +3596,36 @@ function updateFleetSpeedLabel() {
 
 // ── Van list rendering ─────────────────────────────────────────
 
+function toggleVanPause(vanId) {
+  const van = vans.find(v => v.id === vanId);
+  if (!van) return;
+  if (van.paused || fleetMode === 'stopped') {
+    van.paused = false;
+    van.status = 'running';
+    if (fleetMode === 'stopped') fleetSetMode('fwd');
+  } else {
+    van.paused = true;
+    van.status = 'stopped';
+  }
+  renderVanList();
+  if (fleetModalVanId === vanId) openVanModal(vanId);  // refresh modal if open
+}
+
 function renderVanList() {
   const el = document.getElementById('van-list');
   if (!el) return;
-  el.innerHTML = vans.map(v => `
+  el.innerHTML = vans.map(v => {
+    const canRun = !v.paused && v.status === 'running';
+    const btnLabel = canRun ? '⏹' : '▶';
+    const btnTitle = canRun ? 'Stop van' : 'Start van';
+    return `
     <div class="van-item" onclick="openVanModal(${v.id})">
       <div class="van-color-swatch" style="background:${v.color}"></div>
       <span class="van-label">Van ${v.id}</span>
       <span class="van-badge ${v.status}">${v.status === 'running' ? 'Running' : 'Stopped'}</span>
-    </div>
-  `).join('');
+      <button class="van-toggle-btn" onclick="event.stopPropagation();toggleVanPause(${v.id})" title="${btnTitle}">${btnLabel}</button>
+    </div>`;
+  }).join('');
 }
 
 // ── Van modal ──────────────────────────────────────────────────
@@ -3559,6 +3654,11 @@ function openVanModal(vanId) {
     </tr>
   `).join('');
 
+  const toggleBtn = document.getElementById('van-modal-toggle-btn');
+  if (toggleBtn) {
+    const canRun = !van.paused && van.status === 'running';
+    toggleBtn.textContent = canRun ? '⏹ Stop' : '▶ Start';
+  }
   document.getElementById('van-modal').classList.add('open');
 }
 
@@ -3634,6 +3734,16 @@ function sendFleetQuestion() {
   appendFleetMessage('user', raw);
 
   const cmd = raw.toLowerCase().replace(/\s+/g, ' ').trim();
+
+  // ── Routes ──────────────────────────────────────────────────
+  if (/show\s*routes?/.test(cmd)) {
+    setFleetShowRoutes(true);
+    return appendFleetMessage('system', 'Routes shown.');
+  }
+  if (/clear\s*routes?|hide\s*routes?/.test(cmd)) {
+    setFleetShowRoutes(false);
+    return appendFleetMessage('system', 'Routes cleared.');
+  }
 
   // ── Map theme ────────────────────────────────────────────────
   if (/light/.test(cmd) && /map|theme/.test(cmd) || cmd === 'light') {
@@ -3713,7 +3823,7 @@ function sendFleetQuestion() {
   // ── Help / unknown ───────────────────────────────────────────
   appendFleetMessage('system',
     'Commands: stop · start · start 10x · restart · restart 10x · ' +
-    'stop N · start N · restart N · light map · dark map');
+    'stop N · start N · restart N · light map · dark map · show routes · clear routes');
 }
 
 // ── Tab switching ──────────────────────────────────────────────
