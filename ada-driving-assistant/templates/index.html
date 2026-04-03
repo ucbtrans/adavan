@@ -3210,15 +3210,28 @@ function _colorizeVan(img, color) {
   const canvas = document.createElement('canvas');
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext('2d');
-  // 1. Draw original (white van with transparency)
   ctx.drawImage(img, 0, 0, W, H);
-  // 2. Multiply blend: white×color=color, dark outlines stay dark
-  ctx.globalCompositeOperation = 'multiply';
-  ctx.fillStyle = color;
-  ctx.fillRect(0, 0, W, H);
-  // 3. Clip to original alpha so transparent areas stay transparent
-  ctx.globalCompositeOperation = 'destination-in';
-  ctx.drawImage(img, 0, 0, W, H);
+
+  const id = ctx.getImageData(0, 0, W, H);
+  const d  = id.data;
+
+  // Parse hex color → rgb components
+  const n  = parseInt(color.replace('#', ''), 16);
+  const cr = (n >> 16) & 255, cg = (n >> 8) & 255, cb = n & 255;
+
+  for (let i = 0; i < d.length; i += 4) {
+    // Drop near-transparent or near-white pixels (background)
+    if (d[i+3] < 20 || (d[i] > 230 && d[i+1] > 230 && d[i+2] > 230)) {
+      d[i+3] = 0;
+      continue;
+    }
+    // Multiply-blend each pixel with the van color
+    d[i]   = Math.round(d[i]   * cr / 255);
+    d[i+1] = Math.round(d[i+1] * cg / 255);
+    d[i+2] = Math.round(d[i+2] * cb / 255);
+  }
+  ctx.putImageData(id, 0, 0);
+
   const url = canvas.toDataURL();
   _vanColorCache[color] = url;
   return url;
