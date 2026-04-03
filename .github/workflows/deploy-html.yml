@@ -36,8 +36,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ── 1b. Verify AWS secrets are present ──────────────────────────────
+      - name: Check AWS secrets
+        id: secrets
+        run: |
+          if [[ -n "$KEY" && -n "$SECRET" ]]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY not set in repository secrets — deploy skipped."
+          fi
+        env:
+          KEY:    ${{ secrets.AWS_ACCESS_KEY_ID }}
+          SECRET: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
       # ── 2. Configure AWS credentials ────────────────────────────────────
       - name: Configure AWS credentials
+        if: steps.secrets.outputs.ok == 'true'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -46,6 +61,7 @@ jobs:
 
       # ── 3. Resolve runtime values from CloudFormation ───────────────────
       - name: Fetch API URL and v2 bucket from CloudFormation
+        if: steps.secrets.outputs.ok == 'true'
         run: |
           API_URL=$(aws cloudformation describe-stacks \
             --stack-name "$STACK_NAME" --region "$REGION" \
@@ -62,6 +78,7 @@ jobs:
 
       # ── 4. Inject API URL into HTML ──────────────────────────────────────
       - name: Prepare HTML files
+        if: steps.secrets.outputs.ok == 'true'
         working-directory: ada-driving-assistant
         env:
           API_URL: ${{ env.API_URL }}
@@ -93,6 +110,7 @@ jobs:
 
       # ── 5. Upload HTML ───────────────────────────────────────────────────
       - name: Upload index.html to S3
+        if: steps.secrets.outputs.ok == 'true'
         working-directory: ada-driving-assistant
         run: |
           aws s3 cp _deploy_index.html \
@@ -107,6 +125,7 @@ jobs:
 
       # ── 6. Upload static JSON assets (only if present in repo) ───────────
       - name: Upload static JSON assets
+        if: steps.secrets.outputs.ok == 'true'
         working-directory: ada-driving-assistant
         run: |
           for f in addresses_pool.json traffic_signals.json stop_signs.json; do
@@ -132,6 +151,7 @@ jobs:
 
       # ── 7. Invalidate CloudFront caches ──────────────────────────────────
       - name: Invalidate CloudFront
+        if: steps.secrets.outputs.ok == 'true'
         run: |
           aws cloudfront create-invalidation \
             --distribution-id "$V1_CF_DIST" --paths "/*" \
