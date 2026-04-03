@@ -533,6 +533,193 @@ aside h2 {
   z-index: 10;
 }
 .resize-handle:hover, .resize-handle.dragging { background: var(--blue); }
+
+/* ── Tabs ───────────────────────────────────────────────────── */
+.tab-bar {
+  display: flex;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 0 20px;
+  flex-shrink: 0;
+}
+.tab-btn {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  padding: 9px 22px;
+  font-size: .9rem;
+  font-weight: 600;
+  cursor: pointer;
+  letter-spacing: .03em;
+  transition: color .15s;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active { color: var(--blue); border-bottom-color: var(--blue); }
+.tab-pane { display: none; flex: 1; overflow: hidden; flex-direction: column; min-height: 0; }
+.tab-pane.active { display: flex; }
+
+/* ── Fleet layout ───────────────────────────────────────────── */
+.fleet-main { display: flex; flex: 1; overflow: hidden; min-height: 0; }
+.fleet-sidebar {
+  width: 200px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+.fleet-sidebar h2 {
+  font-size: .7rem;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 12px 12px 8px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.fleet-map-wrap { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+#fleet-map { flex: 1; min-height: 0; }
+#fleet-sim-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.fleet-chat-col {
+  width: 300px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+}
+.fleet-chat-header {
+  padding: 10px 12px;
+  font-size: .75rem;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+#fleet-chat-log {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: .85rem;
+}
+.fleet-input-bar {
+  display: flex;
+  gap: 6px;
+  padding: 10px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.fleet-input-bar textarea {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  padding: 8px;
+  font-size: .85rem;
+  resize: none;
+  height: 56px;
+  font-family: inherit;
+}
+
+/* Van list */
+.van-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  transition: background .15s;
+  user-select: none;
+}
+.van-item:hover { background: rgba(88,166,255,0.07); }
+.van-color-swatch {
+  width: 14px; height: 14px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  border: 1px solid rgba(255,255,255,0.15);
+}
+.van-label { font-weight: 600; font-size: .85rem; flex: 1; }
+.van-badge {
+  font-size: .7rem;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+.van-badge.running { background: rgba(63,185,80,0.2); color: #3fb950; }
+.van-badge.stopped { background: rgba(139,148,158,0.15); color: var(--muted); }
+
+/* Van modal */
+#van-modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.72);
+  z-index: 2000;
+  align-items: center;
+  justify-content: center;
+}
+#van-modal.open { display: flex; }
+.van-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 24px;
+  width: 560px;
+  max-height: 85vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.van-card h3 { font-size: 1rem; color: var(--blue); }
+.van-card .van-meta { font-size: .83rem; color: var(--muted); }
+.van-dest-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+.van-dest-table th {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-weight: 600;
+  font-size: .74rem;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.van-dest-table td { padding: 5px 8px; border-bottom: 1px solid rgba(48,54,61,0.5); }
+.van-dest-table tr.dest-current { background: rgba(88,166,255,0.1); }
+.van-dest-table tr.dest-current td:first-child { color: var(--blue); font-weight: 700; }
+.van-dest-table input {
+  width: 100%;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text);
+  padding: 3px 5px;
+  border-radius: 4px;
+  font-size: .82rem;
+  font-family: inherit;
+}
+.van-dest-table input:focus {
+  background: var(--bg);
+  border-color: var(--blue);
+  outline: none;
+}
 </style>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js" defer></script>
@@ -557,6 +744,12 @@ aside h2 {
   </div>
 </header>
 
+<div class="tab-bar">
+  <button class="tab-btn active" data-tab="ada" onclick="switchTab('ada')">ADA</button>
+  <button class="tab-btn" data-tab="fleet" onclick="switchTab('fleet')">🚐 Fleet</button>
+</div>
+
+<div id="tab-ada" class="tab-pane active">
 <div class="main">
 
   <!-- ── Sidebar: previous sessions ─────────────── -->
@@ -667,6 +860,66 @@ aside h2 {
 
   </div><!-- /content -->
 </div><!-- /main -->
+</div><!-- /tab-ada -->
+
+<!-- ── Fleet Tab ──────────────────────────────────────────────── -->
+<div id="tab-fleet" class="tab-pane">
+  <div class="fleet-main">
+
+    <!-- Left: van list -->
+    <div class="fleet-sidebar">
+      <h2>🚐 Fleet</h2>
+      <div id="van-list"></div>
+    </div>
+
+    <!-- Middle: map + sim controls -->
+    <div class="fleet-map-wrap">
+      <div id="fleet-map"></div>
+      <div id="fleet-sim-controls">
+        <button class="sim-btn" id="fleet-btn-bwd10" onclick="fleetSetMode('bwd10')" title="Fast backward 10×">⏪</button>
+        <button class="sim-btn" id="fleet-btn-bwd"   onclick="fleetSetMode('bwd')"   title="Backward">◀</button>
+        <button class="sim-btn" id="fleet-btn-fwd"   onclick="fleetSetMode('fwd')"   title="Forward">▶</button>
+        <button class="sim-btn" id="fleet-btn-fwd10" onclick="fleetSetMode('fwd10')" title="Fast forward 10×">⏩</button>
+        <button class="sim-btn" id="fleet-btn-reset" onclick="fleetReset()" title="Reset all vans to origin">⏹</button>
+        <span id="fleet-sim-speed" style="font-size:.78rem;color:var(--muted);margin-left:4px;"></span>
+        <span id="fleet-sim-time"  style="font-size:.78rem;color:var(--muted);margin-left:8px;"></span>
+      </div>
+    </div>
+
+    <!-- Right: fleet chat -->
+    <div class="fleet-chat-col">
+      <div class="fleet-chat-header">🚐 Fleet Assistant</div>
+      <div id="fleet-chat-log"></div>
+      <div class="fleet-input-bar">
+        <textarea id="fleet-question-input" placeholder="Ask about the fleet…" onkeydown="handleFleetKey(event)"></textarea>
+        <button class="btn btn-primary" onclick="sendFleetQuestion()">Send</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── Van Modal ───────────────────────────────────────────────── -->
+<div id="van-modal">
+  <div class="van-card">
+    <div style="display:flex;align-items:center;justify-content:space-between;">
+      <h3 id="van-modal-title">Van</h3>
+      <button class="btn btn-ghost" onclick="closeVanModal()" style="font-size:.9rem;">✕ Close</button>
+    </div>
+    <div id="van-modal-meta" class="van-meta"></div>
+    <div>
+      <div style="font-size:.74rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Destination Cycle</div>
+      <table class="van-dest-table">
+        <thead><tr><th>#</th><th>Address</th></tr></thead>
+        <tbody id="van-dest-tbody"></tbody>
+      </table>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px;">
+      <button class="btn btn-ghost" onclick="closeVanModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveVanConfig()">💾 Save to S3</button>
+    </div>
+  </div>
+</div>
 
 <!-- ── Consumption Modal ─────────────────────────────────────── -->
 <div id="consumption-modal">
@@ -2904,6 +3157,446 @@ window.addEventListener('DOMContentLoaded', () => {
       () => { if (sessionMap) sessionMap.invalidateSize(); });
   } catch(e) { console.error('resize handles failed:', e); }
 });
+
+// ═══════════════════════════════════════════════════════════════
+// ── Fleet ──────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+
+const VAN_COLORS = [
+  '#f97316', // 1  orange
+  '#3b82f6', // 2  blue
+  '#22c55e', // 3  green
+  '#a855f7', // 4  purple
+  '#ef4444', // 5  red
+  '#14b8a6', // 6  teal
+  '#eab308', // 7  yellow
+  '#ec4899', // 8  pink
+  '#06b6d4', // 9  cyan
+  '#84cc16', // 10 lime
+];
+
+const NUM_VANS      = 10;
+const NUM_DESTS     = 10;
+const FLEET_TICK_MS = 100;
+
+let fleetMap          = null;
+let fleetMode         = 'stopped';
+let fleetInterval     = null;
+let fleetTimeSec      = 0;
+let fleetModalVanId   = null;
+let fleetInitialized  = false;
+let _fleetTickBusy    = false;
+
+let vans = [];   // array of van state objects
+
+// ── Van icon ──────────────────────────────────────────────────
+
+function makeVanIcon(num, color, bearing) {
+  const rot = bearing || 0;
+  return L.divIcon({
+    className: '',
+    html: `<div style="width:34px;height:34px;position:relative;">
+      <svg width="34" height="34" viewBox="0 0 34 34" xmlns="http://www.w3.org/2000/svg"
+           style="transform:rotate(${rot}deg);transform-origin:17px 17px;display:block;">
+        <circle cx="17" cy="17" r="15" fill="${color}" stroke="rgba(255,255,255,0.85)" stroke-width="2"/>
+        <polygon points="17,5 21,14 17,12 13,14" fill="rgba(255,255,255,0.92)"/>
+      </svg>
+      <span style="position:absolute;top:0;left:0;width:34px;height:34px;display:flex;align-items:center;
+                   justify-content:center;font-size:10px;font-weight:700;color:#fff;
+                   text-shadow:0 0 3px rgba(0,0,0,0.8);pointer-events:none;padding-top:4px;">${num}</span>
+    </div>`,
+    iconSize:   [34, 34],
+    iconAnchor: [17, 17],
+  });
+}
+
+// ── Van helpers ────────────────────────────────────────────────
+
+function vanRouteTotalM(van) {
+  if (!van.routeCoords || van.routeCoords.length < 2) return 0;
+  let total = 0;
+  for (let i = 0; i < van.routeCoords.length - 1; i++) {
+    const [lon1,lat1] = van.routeCoords[i], [lon2,lat2] = van.routeCoords[i+1];
+    total += haversineM(lat1, lon1, lat2, lon2);
+  }
+  return total;
+}
+
+function vanPosAtDist(van, d) {
+  if (!van.routeCoords || van.routeCoords.length < 2) return null;
+  let walked = 0;
+  for (let i = 0; i < van.routeCoords.length - 1; i++) {
+    const [lon1,lat1] = van.routeCoords[i], [lon2,lat2] = van.routeCoords[i+1];
+    const seg = haversineM(lat1, lon1, lat2, lon2);
+    if (walked + seg >= d || i === van.routeCoords.length - 2) {
+      const t = seg > 0 ? Math.min(1, (d - walked) / seg) : 0;
+      const lat = lat1 + t*(lat2-lat1);
+      const lon = lon1 + t*(lon2-lon1);
+      const bearing = (Math.atan2(lon2-lon1, lat2-lat1)*180/Math.PI + 360) % 360;
+      return { lat, lon, bearing: Math.round(bearing) };
+    }
+    walked += seg;
+  }
+  return null;
+}
+
+function vanStreetMph(van) {
+  if (!van.routeStreets || van.routeStreets.length === 0) return 25;
+  const total = vanRouteTotalM(van);
+  if (total <= 0) return 25;
+  const idx  = Math.min(Math.floor((van.distM / total) * van.routeStreets.length), van.routeStreets.length - 1);
+  const name = (van.routeStreets[idx] || '').toLowerCase();
+  if (FREEWAY_RE.test(name))                                  return 65;
+  if (/\bavenue\b|\bblvd\b|\bboulevard\b/.test(name))         return 35;
+  if (/\broad\b|\brdway\b|\bdrive\b|\bparkway\b|\bpkwy\b/.test(name)) return 30;
+  return 25;
+}
+
+// ── Initialization ─────────────────────────────────────────────
+
+function initFleetVans() {
+  vans = Array.from({ length: NUM_VANS }, (_, i) => ({
+    id:             i + 1,
+    color:          VAN_COLORS[i],
+    status:         'stopped',
+    destinations:   [],       // [{address, lat, lon}]
+    currentDestIdx: 1,        // heading toward this destination index
+    routeCoords:    null,     // [[lon,lat],...]
+    routeStreets:   [],
+    distM:          0,
+    lat:            null,
+    lon:            null,
+    bearing:        0,
+    marker:         null,
+    fetchingRoute:  false,
+  }));
+}
+
+function pickRandomAddresses(n) {
+  if (!addressPool || addressPool.length === 0) return [];
+  const result = [], used = new Set();
+  let safety = 0;
+  while (result.length < n && safety++ < addressPool.length * 3) {
+    const idx = Math.floor(Math.random() * addressPool.length);
+    if (used.has(idx)) continue;
+    used.add(idx);
+    const a = addressPool[idx];
+    result.push({ address: a.address, lat: a.lat, lon: a.lon });
+  }
+  return result;
+}
+
+async function initVanDestinations(van) {
+  if (!van.destinations || van.destinations.length < NUM_DESTS) {
+    van.destinations   = pickRandomAddresses(NUM_DESTS);
+    van.currentDestIdx = 1;
+  }
+  if (van.destinations.length > 0) {
+    van.lat = van.destinations[0].lat;
+    van.lon = van.destinations[0].lon;
+  }
+}
+
+async function loadVanRoute(van) {
+  if (van.fetchingRoute) return;
+  if (!van.destinations || van.destinations.length < 2) return;
+  const prevIdx = (van.currentDestIdx - 1 + van.destinations.length) % van.destinations.length;
+  const orig = van.destinations[prevIdx];
+  const dest = van.destinations[van.currentDestIdx];
+  if (!orig || !dest) return;
+  van.fetchingRoute = true;
+  try {
+    const result = await fetchOsrmRoute(orig.lat, orig.lon, dest.lat, dest.lon);
+    if (result) {
+      van.routeCoords  = result.coords;
+      van.routeStreets = result.streets || [];
+    } else {
+      van.routeCoords  = null;
+    }
+    van.distM = 0;
+  } finally {
+    van.fetchingRoute = false;
+  }
+}
+
+function initFleetMap() {
+  if (fleetMap) return;
+  fleetMap = L.map('fleet-map', { zoomControl: true }).setView([37.87, -122.28], 12);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '© OpenStreetMap © CARTO',
+    maxZoom: 19,
+  }).addTo(fleetMap);
+}
+
+function updateVanMarker(van) {
+  if (!fleetMap || van.lat === null) return;
+  const icon = makeVanIcon(van.id, van.color, van.bearing);
+  if (!van.marker) {
+    van.marker = L.marker([van.lat, van.lon], { icon, zIndexOffset: 500 }).addTo(fleetMap);
+    van.marker.on('click', () => openVanModal(van.id));
+  } else {
+    van.marker.setLatLng([van.lat, van.lon]);
+    van.marker.setIcon(icon);
+  }
+}
+
+// ── Simulation ─────────────────────────────────────────────────
+
+async function fleetTick() {
+  if (_fleetTickBusy) return;
+  _fleetTickBusy = true;
+  try {
+    const isBack = fleetMode === 'bwd' || fleetMode === 'bwd10';
+    const isFast = fleetMode === 'fwd10' || fleetMode === 'bwd10';
+    const mult   = isFast ? 10 : 1;
+    const dir    = isBack ? -1 : 1;
+    const simSec = (FLEET_TICK_MS / 1000) * mult;
+
+    for (const van of vans) {
+      if (van.fetchingRoute) continue;
+      if (!van.routeCoords)  continue;
+      const total = vanRouteTotalM(van);
+      if (total <= 0) continue;
+
+      const mps   = vanStreetMph(van) * 0.44704;
+      const delta = mps * simSec * dir;
+      const newDist = Math.max(0, Math.min(total, van.distM + delta));
+      van.distM = newDist;
+
+      const pos = vanPosAtDist(van, van.distM);
+      if (pos) { van.lat = pos.lat; van.lon = pos.lon; van.bearing = pos.bearing; }
+      updateVanMarker(van);
+
+      // Reached destination → advance to next
+      if (!isBack && van.distM >= total) {
+        van.currentDestIdx = (van.currentDestIdx + 1) % van.destinations.length;
+        // Non-blocking: fire and forget (fetchingRoute flag prevents re-entry)
+        loadVanRoute(van).then(() => renderVanList());
+      }
+    }
+
+    fleetTimeSec = Math.max(0, fleetTimeSec + simSec * dir);
+    updateFleetTime();
+    updateFleetSpeedLabel();
+  } finally {
+    _fleetTickBusy = false;
+  }
+}
+
+function fleetSetMode(mode) {
+  if (fleetInterval) { clearInterval(fleetInterval); fleetInterval = null; }
+  // Toggle current mode → stop
+  if (mode !== 'stopped' && fleetMode === mode) {
+    fleetMode = 'stopped';
+    vans.forEach(v => { v.status = 'stopped'; });
+    renderVanList();
+    updateFleetControls();
+    updateFleetSpeedLabel();
+    return;
+  }
+  fleetMode = mode;
+  if (mode !== 'stopped') {
+    vans.forEach(v => { v.status = 'running'; });
+    fleetInterval = setInterval(() => { fleetTick(); }, FLEET_TICK_MS);
+  } else {
+    vans.forEach(v => { v.status = 'stopped'; });
+  }
+  renderVanList();
+  updateFleetControls();
+  updateFleetSpeedLabel();
+}
+
+function fleetReset() {
+  fleetSetMode('stopped');
+  fleetTimeSec = 0;
+  vans.forEach(v => {
+    v.distM = 0;
+    if (v.destinations.length > 0) {
+      v.lat = v.destinations[0].lat;
+      v.lon = v.destinations[0].lon;
+      v.bearing = 0;
+    }
+    updateVanMarker(v);
+  });
+  updateFleetTime();
+  updateFleetSpeedLabel();
+  renderVanList();
+}
+
+function updateFleetControls() {
+  const map = { fwd:'fleet-btn-fwd', bwd:'fleet-btn-bwd', fwd10:'fleet-btn-fwd10', bwd10:'fleet-btn-bwd10' };
+  for (const [m, id] of Object.entries(map)) {
+    const btn = document.getElementById(id);
+    if (!btn) continue;
+    btn.style.background = fleetMode === m ? 'rgba(88,166,255,0.25)' : '';
+    if (m === 'fwd') btn.textContent = fleetMode === 'fwd' ? '⏸' : '▶';
+    if (m === 'bwd') btn.textContent = fleetMode === 'bwd' ? '⏸' : '◀';
+  }
+}
+
+function updateFleetTime() {
+  const el = document.getElementById('fleet-sim-time');
+  if (!el) return;
+  if (fleetMode === 'stopped') { el.textContent = ''; return; }
+  const s  = Math.max(0, Math.round(fleetTimeSec));
+  const m  = Math.floor(s / 60);
+  const ss = (s % 60).toString().padStart(2, '0');
+  el.textContent = `🕐 ${m}:${ss}`;
+}
+
+function updateFleetSpeedLabel() {
+  const el = document.getElementById('fleet-sim-speed');
+  if (!el || fleetMode === 'stopped') { if (el) el.textContent = ''; return; }
+  el.textContent = (fleetMode === 'fwd10' || fleetMode === 'bwd10') ? '×10' : '×1';
+}
+
+// ── Van list rendering ─────────────────────────────────────────
+
+function renderVanList() {
+  const el = document.getElementById('van-list');
+  if (!el) return;
+  el.innerHTML = vans.map(v => `
+    <div class="van-item" onclick="openVanModal(${v.id})">
+      <div class="van-color-swatch" style="background:${v.color}"></div>
+      <span class="van-label">Van ${v.id}</span>
+      <span class="van-badge ${v.status}">${v.status === 'running' ? 'Running' : 'Stopped'}</span>
+    </div>
+  `).join('');
+}
+
+// ── Van modal ──────────────────────────────────────────────────
+
+function openVanModal(vanId) {
+  const van = vans.find(v => v.id === vanId);
+  if (!van) return;
+  fleetModalVanId = vanId;
+
+  document.getElementById('van-modal-title').textContent = `Van ${van.id}`;
+  const colorBox   = `<span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${van.color};vertical-align:middle;margin-right:6px;border:1px solid rgba(255,255,255,0.15);"></span>`;
+  const statusHtml = van.status === 'running'
+    ? '<span style="color:var(--green)">Running</span>'
+    : '<span style="color:var(--muted)">Stopped</span>';
+  const destInfo = van.destinations[van.currentDestIdx]
+    ? `→ ${van.destinations[van.currentDestIdx].address}` : '';
+  document.getElementById('van-modal-meta').innerHTML =
+    `${colorBox}${statusHtml} &nbsp;|&nbsp; Next: <span style="color:var(--blue)">${destInfo}</span>`;
+
+  const tbody = document.getElementById('van-dest-tbody');
+  tbody.innerHTML = van.destinations.map((d, i) => `
+    <tr class="${i === van.currentDestIdx ? 'dest-current' : ''}">
+      <td style="color:var(--muted);width:28px;">${i + 1}</td>
+      <td><input type="text" value="${(d.address || '').replace(/"/g, '&quot;')}"
+           onchange="onVanDestEdit(${vanId}, ${i}, this.value)"/></td>
+    </tr>
+  `).join('');
+
+  document.getElementById('van-modal').classList.add('open');
+}
+
+function closeVanModal() {
+  document.getElementById('van-modal').classList.remove('open');
+  fleetModalVanId = null;
+}
+
+function onVanDestEdit(vanId, idx, newAddress) {
+  const van = vans.find(v => v.id === vanId);
+  if (van && van.destinations[idx]) van.destinations[idx].address = newAddress;
+}
+
+async function saveVanConfig() {
+  try {
+    const payload = vans.map(v => ({
+      id: v.id, destinations: v.destinations, currentDestIdx: v.currentDestIdx,
+    }));
+    const resp = await fetch(`${API_BASE}/api/fleet/vans`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    closeVanModal();
+    appendFleetMessage('system', '✓ Fleet configuration saved to S3.');
+  } catch (err) {
+    appendFleetMessage('system', `Save failed: ${err.message}`);
+  }
+}
+
+async function loadFleetConfig() {
+  try {
+    const resp = await fetch(`${API_BASE}/api/fleet/vans`);
+    if (!resp.ok) return false;
+    const data = await resp.json();
+    if (!Array.isArray(data) || data.length === 0) return false;
+    for (const saved of data) {
+      const van = vans.find(v => v.id === saved.id);
+      if (!van) continue;
+      if (Array.isArray(saved.destinations) && saved.destinations.length >= NUM_DESTS) {
+        van.destinations   = saved.destinations;
+        van.currentDestIdx = saved.currentDestIdx ?? 1;
+      }
+    }
+    return true;
+  } catch (_) { return false; }
+}
+
+// ── Fleet chat ─────────────────────────────────────────────────
+
+function appendFleetMessage(role, text) {
+  const log = document.getElementById('fleet-chat-log');
+  if (!log) return;
+  const div = document.createElement('div');
+  div.style.cssText = role === 'system'
+    ? 'font-size:.8rem;color:var(--muted);font-style:italic;'
+    : 'font-size:.85rem;color:var(--text);';
+  div.textContent = text;
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+}
+
+function handleFleetKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendFleetQuestion(); }
+}
+
+function sendFleetQuestion() {
+  const inp = document.getElementById('fleet-question-input');
+  if (!inp || !inp.value.trim()) return;
+  appendFleetMessage('user', inp.value.trim());
+  appendFleetMessage('system', 'Fleet commands coming soon.');
+  inp.value = '';
+}
+
+// ── Tab switching ──────────────────────────────────────────────
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id === 'tab-' + tab));
+
+  if (tab === 'fleet' && !fleetInitialized) {
+    fleetInitialized = true;
+    initFleetMap();
+    initFleetVans();
+    // Load pool, then saved config, then init each van
+    loadAddressPool().then(async () => {
+      await loadFleetConfig();
+      // Initialize destinations for vans that didn't get saved config
+      for (const van of vans) {
+        if (van.destinations.length < NUM_DESTS) await initVanDestinations(van);
+      }
+      renderVanList();
+      // Load routes staggered to avoid hammering OSRM
+      for (const van of vans) {
+        await loadVanRoute(van);
+        updateVanMarker(van);
+        renderVanList();
+        await new Promise(r => setTimeout(r, 200));
+      }
+    });
+  }
+
+  if (tab === 'fleet' && fleetMap) {
+    setTimeout(() => fleetMap.invalidateSize(), 60);
+  }
+}
 </script>
 </body>
 </html>

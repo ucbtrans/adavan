@@ -386,6 +386,47 @@ def api_consumption():
     return jsonify(result)
 
 
+# -- Fleet ---------------------------------------------------------------
+
+FLEET_KEY = "fleet/vans.json"
+
+
+@app.route("/api/fleet/vans")
+def api_fleet_get():
+    """Load fleet van configuration from S3."""
+    try:
+        s3   = boto3.client("s3")
+        resp = s3.get_object(Bucket=S3_BUCKET, Key=FLEET_KEY)
+        return jsonify(json.loads(resp["Body"].read()))
+    except Exception as exc:
+        code = getattr(getattr(exc, "response", None), "__getitem__", lambda k: None)("Error") or {}
+        if isinstance(code, dict) and code.get("Code") == "NoSuchKey":
+            return jsonify([])
+        # botocore ClientError
+        if hasattr(exc, "response") and exc.response.get("Error", {}).get("Code") == "NoSuchKey":
+            return jsonify([])
+        return jsonify([])   # return empty list on any error so frontend can proceed
+
+
+@app.route("/api/fleet/vans", methods=["POST"])
+def api_fleet_save():
+    """Save fleet van configuration to S3."""
+    data = request.json
+    if not isinstance(data, list):
+        return jsonify({"error": "expected a JSON array"}), 400
+    try:
+        s3 = boto3.client("s3")
+        s3.put_object(
+            Bucket=S3_BUCKET,
+            Key=FLEET_KEY,
+            Body=json.dumps(data, separators=(",", ":")),
+            ContentType="application/json",
+        )
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 # ── Lambda entry point (aws-wsgi bridges Flask WSGI → API Gateway) ───────────
 try:
     import awsgi
