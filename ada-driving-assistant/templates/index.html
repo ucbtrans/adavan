@@ -4171,9 +4171,7 @@ async function loadFleetEventMarkers() {
     const data = await resp.json();
     if (data.error) { _flog('err', `API error: ${data.error}`); return; }
     const events = data.events || [];
-    // total = ALL active events in DynamoDB — consistent across resets regardless of route coverage
-    _updateFleetStats({ total: events.length });
-    _flog('info', `Received ${events.length} events from API (total)`);
+    _flog('info', `Received ${events.length} events from API`);
     let placed = 0, skipped = 0, offRoute = 0;
     const routeStreetNames = _allRouteStreets();
     for (const ev of events) {
@@ -4188,6 +4186,8 @@ async function loadFleetEventMarkers() {
       fleetPlaceEventMarker(ev, { countInTotal: true });
       placed++;
     }
+    // total = on-route markers only
+    _updateFleetStats({ total: placed });
     _flog('ok', `Placed ${placed} markers on routes (${offRoute} off-route, ${skipped} invalid).`);
   } catch (err) {
     _flog('err', `loadFleetEventMarkers exception: ${err}`);
@@ -4254,8 +4254,9 @@ async function checkVanBlock(van, lat, lon, street) {
       }).then(r => {
         if (r.ok) {
           _flog('ok', `Van${van.id} cleared ${eventDisplayName(ev.type)} on "${street}" (id:${ev.event_id})`);
+          const wasCounted = _wasCountedInTotal(ev.event_id);
           fleetRemoveEventMarker(ev.event_id);
-          _updateFleetStats({ cleared: _fleetStats.cleared + 1, total: Math.max(0, _fleetStats.total - 1) });
+          _updateFleetStats({ cleared: _fleetStats.cleared + 1, ...(wasCounted && { total: Math.max(0, _fleetStats.total - 1) }) });
         }
       }).catch(() => {});
     }
