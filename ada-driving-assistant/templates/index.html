@@ -4193,7 +4193,7 @@ function setFleetShowEventMarkers(show) {
   }
 }
 
-function _isNearAnyRoute(lat, lon, thresholdM = 150) {
+function _isNearAnyRoute(lat, lon, thresholdM = 40) {
   // Fast flat-earth bounding-box pre-filter against every route coordinate
   const dlat = thresholdM / 111000;
   const dlon = thresholdM / (111000 * Math.cos(lat * Math.PI / 180));
@@ -4234,9 +4234,10 @@ async function loadFleetEventMarkers() {
       const [lat, lon] = _evLatLon(ev);
       const eid = ev.event_id || ev.id;
       if (!lat || !lon || !eid) { skipped++; continue; }
-      // Use geographic proximity only — street name alone is too coarse
-      // (a street can be miles long; van may only cross one block of it)
-      if (!_isNearAnyRoute(lat, lon, 150)) { offRoute++; continue; }
+      // Both conditions must pass: street name on a route AND within 40m of route path
+      const evStreet = (ev.street || '').toLowerCase().trim();
+      const streetMatch = !evStreet || _allRouteStreets().has(evStreet);
+      if (!streetMatch || !_isNearAnyRoute(lat, lon, 40)) { offRoute++; continue; }
       fleetPlaceEventMarker(ev, { countInTotal: true });
       placed++;
     }
