@@ -1314,10 +1314,17 @@ function makeDestIcon() {
 
 // ── Event type → emoji mapping ───────────────────────────────────────────────
 const EVENT_EMOJI = {
+  single_cone:       '🔶',
+  cone_group:        '🔶',
   construction_zone: '🚧',
   road_barrier:      '🚧',
   traffic_cone:      '🔶',
+  car_accident:      '🚨',
+  double_parked_car: '🚗',
+  broken_car:        '🚗',
   dropped_object:    '⚠️',
+  protest:           '🚶',
+  police_blocking:   '🚔',
   accident:          '🚨',
   emergency_vehicle: '🚨',
   police:            '🚔',
@@ -1327,7 +1334,33 @@ const EVENT_EMOJI = {
   debris:            '⚠️',
 };
 
+function _makeConeIconHtml(group) {
+  // SVG road cone: orange body, white reflective band, dark base
+  const badge = group
+    ? `<circle cx="19" cy="5" r="5.5" fill="#111"/><text x="19" y="8.5" text-anchor="middle" font-size="6.5" fill="white" font-family="sans-serif" font-weight="bold">×3</text>`
+    : '';
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="32" viewBox="0 0 24 32">
+    <!-- base plate -->
+    <rect x="1" y="26" width="22" height="5" rx="1.5" fill="#111"/>
+    <!-- base collar -->
+    <rect x="3" y="23" width="18" height="4" rx="1" fill="#e65c00"/>
+    <!-- cone body -->
+    <polygon points="12,1 21,23 3,23" fill="#ff6a00"/>
+    <!-- white reflective stripe -->
+    <polygon points="7,14 17,14 18.5,18.5 5.5,18.5" fill="white" opacity="0.92"/>
+    <!-- shading (right side) -->
+    <polygon points="12,1 21,23 17,23 13,9" fill="rgba(0,0,0,0.13)"/>
+    ${badge}
+  </svg>`;
+}
+
 function makeEventIcon(type) {
+  const coneTypes = new Set(['single_cone', 'cone_group', 'traffic_cone']);
+  if (coneTypes.has(type)) {
+    const isGroup = type === 'cone_group';
+    const html = `<div style="filter:drop-shadow(0 1px 3px rgba(0,0,0,.65));cursor:default;line-height:0;">${_makeConeIconHtml(isGroup)}</div>`;
+    return L.divIcon({ html, iconSize: [24, 32], iconAnchor: [12, 32], className: '' });
+  }
   const emoji = EVENT_EMOJI[type] || '⚠️';
   const html = `<div style="
     font-size:18px; line-height:1;
