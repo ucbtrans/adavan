@@ -26,6 +26,8 @@ Globals:
         OBJECTS_KEY:      CA/Berkeley/city_objects.json
         STREETS_KEY:      CA/Berkeley/city_streets.json
         SESSIONS_TABLE:   !Ref SessionsTable
+        EVENTS_TABLE:     !Ref EventsTable
+        FLEET_TABLE:      !Ref FleetConfigTable
         ANTHROPIC_API_KEY: !Ref AnthropicApiKey
 
 Resources:
@@ -55,6 +57,10 @@ Resources:
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref SessionsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref EventsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FleetConfigTable
         - S3ReadPolicy:
             BucketName: !Ref DataBucketName
         - Statement:
@@ -88,6 +94,8 @@ Resources:
       Policies:
         - S3CrudPolicy:
             BucketName: !Ref DataBucketName
+        - DynamoDBCrudPolicy:
+            TableName: !Ref EventsTable
       Events:
         DailySchedule:
           Type: Schedule
@@ -95,6 +103,46 @@ Resources:
             Schedule: cron(0 6 * * ? *)
             Name: ada-daily-simulation
             Description: Generate daily traffic events for all cities
+
+  # ── DynamoDB events table ───────────────────────────────────────────────────
+  EventsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: ada-events
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: street,   AttributeType: S }
+        - { AttributeName: event_id, AttributeType: S }
+        - { AttributeName: city,     AttributeType: S }
+        - { AttributeName: geohash6, AttributeType: S }
+      KeySchema:
+        - { AttributeName: street,   KeyType: HASH }
+        - { AttributeName: event_id, KeyType: RANGE }
+      GlobalSecondaryIndexes:
+        - IndexName: city-index
+          KeySchema:
+            - { AttributeName: city,     KeyType: HASH }
+            - { AttributeName: event_id, KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+        - IndexName: geohash6-index
+          KeySchema:
+            - { AttributeName: geohash6, KeyType: HASH }
+            - { AttributeName: event_id, KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  # ── DynamoDB fleet config table ─────────────────────────────────────────────
+  FleetConfigTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: ada-fleet-config
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: config_key, AttributeType: S }
+      KeySchema:
+        - { AttributeName: config_key, KeyType: HASH }
 
   # ── DynamoDB sessions table ─────────────────────────────────────────────────
   SessionsTable:
@@ -189,3 +237,9 @@ Outputs:
     Value: !Ref WebBucketV2
     Export:
       Name: ADAWebBucketV2
+
+  EventsTableArn:
+    Description: DynamoDB events table ARN
+    Value: !GetAtt EventsTable.Arn
+    Export:
+      Name: ADAEventsTableArn

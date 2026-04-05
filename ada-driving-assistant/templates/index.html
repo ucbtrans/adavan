@@ -680,7 +680,7 @@ aside h2 {
 .van-toggle-btn:hover { background: rgba(88,166,255,0.12); }
 
 /* Van modal */
-#van-modal {
+#van-modal, #fleet-log-modal {
   display: none;
   position: fixed;
   inset: 0;
@@ -689,7 +689,43 @@ aside h2 {
   align-items: center;
   justify-content: center;
 }
-#van-modal.open { display: flex; }
+#van-modal.open, #fleet-log-modal.open { display: flex; }
+#fleet-log-body {
+  font-family: monospace;
+  font-size: .78rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  color: var(--text);
+  height: 60vh;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+#fleet-log-body .log-ok   { color: #22c55e; }
+#fleet-log-body .log-warn { color: #f97316; }
+#fleet-log-body .log-err  { color: #ef4444; }
+@keyframes fleet-marker-flash {
+  0%, 100% { opacity: 1;   filter: sepia(1) saturate(8) hue-rotate(-30deg) brightness(2)   drop-shadow(0 0  8px #ff6600); }
+  50%       { opacity: 0.2; filter: sepia(1) saturate(4) hue-rotate(-30deg) brightness(1.2) drop-shadow(0 0  2px #ff6600); }
+}
+.fleet-marker-flashing { animation: fleet-marker-flash .6s ease-in-out infinite; }
+.fleet-marker-new { filter: sepia(1) saturate(6) hue-rotate(10deg) brightness(1.8) drop-shadow(0 0 4px #ffdd00) !important; }
+@keyframes fleet-marker-clear {
+  0%   { transform: scale(1);   opacity: 1;   filter: sepia(1) saturate(4) hue-rotate(100deg) brightness(1)   drop-shadow(0 0  0px #00ff44); }
+  10%  { transform: scale(2.2); opacity: 1;   filter: sepia(1) saturate(8) hue-rotate(100deg) brightness(5)   drop-shadow(0 0 12px #00ff44); }
+  25%  { transform: scale(3.8); opacity: 0.9; filter: sepia(1) saturate(8) hue-rotate(110deg) brightness(3)   drop-shadow(0 0 20px #44ff88); }
+  55%  { transform: scale(5.5); opacity: 0.5; filter: sepia(1) saturate(6) hue-rotate(110deg) brightness(1.5) drop-shadow(0 0 14px #00cc44); }
+  100% { transform: scale(7);   opacity: 0;   filter: sepia(1) saturate(2) hue-rotate(100deg) brightness(0.5) drop-shadow(0 0  0px transparent); }
+}
+.fleet-marker-clearing { animation: fleet-marker-clear 1s cubic-bezier(.2,.6,.4,1) forwards; pointer-events: none; }
+#fleet-log-body .log-info { color: var(--muted); }
+/* Log filter bar */
+#fleet-log-filters { display:flex; align-items:center; gap:10px; margin-bottom:8px; flex-wrap:wrap; }
+#fleet-log-filters select { background:var(--surface); color:var(--fg); border:1px solid var(--border); border-radius:5px; padding:3px 8px; font-size:.78rem; }
+.log-filter-btn { background:var(--surface); color:var(--muted); border:1px solid var(--border); border-radius:5px; padding:2px 10px; font-size:.75rem; cursor:pointer; }
+.log-filter-btn.active { background:var(--blue); color:#fff; border-color:var(--blue); }
 .van-card {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -881,7 +917,10 @@ aside h2 {
 
     <!-- Left: van list -->
     <div class="fleet-sidebar">
-      <h2>🚐 Fleet</h2>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+        <h2 style="margin:0;">🚐 Fleet</h2>
+        <button class="btn btn-ghost" onclick="openFleetLog()" style="font-size:.78rem;padding:3px 10px;" title="Open event log">📋 Log</button>
+      </div>
       <div id="van-list"></div>
     </div>
 
@@ -896,6 +935,12 @@ aside h2 {
         <button class="sim-btn" id="fleet-btn-reset" onclick="fleetReset()" title="Reset all vans to origin">⏹</button>
         <span id="fleet-sim-speed" style="font-size:.78rem;color:var(--muted);margin-left:4px;"></span>
         <span id="fleet-sim-time"  style="font-size:.78rem;color:var(--muted);margin-left:8px;"></span>
+        <span id="fleet-event-stats" style="font-size:.75rem;color:var(--muted);margin-left:12px;letter-spacing:.01em;">
+          events total <b id="stat-total">0</b> &nbsp;|&nbsp;
+          checked <b id="stat-checked">0</b> &nbsp;|&nbsp;
+          cleared <b id="stat-cleared" style="color:#22c55e;">0</b> &nbsp;|&nbsp;
+          created <b id="stat-created" style="color:#60a5fa;">0</b>
+        </span>
       </div>
     </div>
 
@@ -930,8 +975,35 @@ aside h2 {
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px;">
       <button class="btn btn-ghost" onclick="closeVanModal()">Cancel</button>
       <button class="btn btn-ghost" id="van-modal-toggle-btn" onclick="toggleVanPause(fleetModalVanId)">▶ Start</button>
-      <button class="btn btn-primary" onclick="saveVanConfig()">💾 Save to S3</button>
+      <button class="btn btn-primary" onclick="saveVanConfig()">💾 Save</button>
     </div>
+  </div>
+</div>
+
+<!-- ── Fleet Event Log Modal ──────────────────────────────────── -->
+<div id="fleet-log-modal">
+  <div class="van-card" style="width:720px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+      <h3 style="margin:0;">📋 Fleet Event Log</h3>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-ghost" onclick="fleetLogClear()" style="font-size:.8rem;">Clear</button>
+        <button class="btn btn-ghost" onclick="fleetLogCopy()" style="font-size:.8rem;">Copy</button>
+        <button class="btn btn-ghost" onclick="closeFleetLog()" style="font-size:.9rem;">✕ Close</button>
+      </div>
+    </div>
+    <div id="fleet-log-filters">
+      <select id="log-filter-van" onchange="_renderFleetLog()">
+        <option value="">All Vans</option>
+      </select>
+      <div style="display:flex;gap:4px;">
+        <button class="log-filter-btn active" data-action="" onclick="_setLogActionFilter(this)">All</button>
+        <button class="log-filter-btn" data-action="checked"  onclick="_setLogActionFilter(this)">Checked</button>
+        <button class="log-filter-btn" data-action="created"  onclick="_setLogActionFilter(this)">Created</button>
+        <button class="log-filter-btn" data-action="cleared"  onclick="_setLogActionFilter(this)">Cleared</button>
+      </div>
+      <span id="log-filter-count" style="font-size:.72rem;color:var(--muted);margin-left:auto;"></span>
+    </div>
+    <div id="fleet-log-body"></div>
   </div>
 </div>
 
@@ -1416,6 +1488,14 @@ function simStreetNameAt(distM) {
   if (total <= 0) return '';
   const idx = Math.min(Math.floor((distM / total) * routeStreets.length), routeStreets.length - 1);
   return (routeStreets[idx] || '').toLowerCase();
+}
+
+function simStreetNameAtVan(van) {
+  if (!van.routeStreets || van.routeStreets.length === 0) return '';
+  const total = vanRouteTotalM(van);
+  if (total <= 0) return '';
+  const idx = Math.min(Math.floor((van.distM / total) * van.routeStreets.length), van.routeStreets.length - 1);
+  return (van.routeStreets[idx] || '');
 }
 
 function isOnFreeway(distM) {
@@ -3193,10 +3273,66 @@ const NUM_VANS      = 10;
 const NUM_DESTS     = 10;
 const FLEET_TICK_MS = 100;
 
+// Event types the fleet vans can generate, with lifespan in seconds
+const VAN_EVENT_TYPES = {
+  single_cone:       86400,
+  cone_group:        172800,
+  construction_zone: 604800,
+  car_accident:      10800,
+  double_parked_car: 3600,
+  broken_car:        7200,
+  road_barrier:      259200,
+  dropped_object:    86400,
+  protest:           14400,
+  police_blocking:   10800,
+};
+
+// City bounding boxes for vanCityAt()
+const CITY_BBOXES = [
+  ['Berkeley',   37.8477, -122.3193, 37.9058, -122.2329],
+  ['Albany',     37.8699, -122.3738, 37.8990, -122.2817],
+  ['ElCerrito',  37.8975, -122.3233, 37.9383, -122.2811],
+  ['Richmond',   37.8836, -122.4415, 38.0286, -122.2435],
+  ['Emeryville', 37.8271, -122.3302, 37.8500, -122.2756],
+  ['Oakland',    37.6301, -122.3559, 37.8854, -122.1144],
+];
+
 let fleetMap          = null;
 let fleetTileLayer    = null;
 let fleetMapTheme     = 'light';
-let fleetShowRoutes   = true;
+let fleetShowRoutes        = true;
+let fleetShowEventMarkers  = true;
+const fleetEventMarkers    = new Map(); // event_id → L.Marker
+const _fleetLog            = [];        // {ts, level, msg} entries
+
+// ── Client-side dedup: prevent race condition creating same type twice on same street ──
+// Maps "street::type" → expiry timestamp (ms). Checked before every create attempt.
+const _recentlyCreated = new Map();
+const _RECENTLY_CREATED_TTL = 90_000; // 90 s — long enough for DynamoDB write to propagate
+
+function _canCreate(street, type) {
+  const key = `${street.toLowerCase()}::${type}`;
+  const exp = _recentlyCreated.get(key);
+  if (exp && Date.now() < exp) return false;
+  return true;
+}
+function _markCreated(street, type) {
+  const key = `${street.toLowerCase()}::${type}`;
+  _recentlyCreated.set(key, Date.now() + _RECENTLY_CREATED_TTL);
+}
+
+// ── Fleet event stats ─────────────────────────────────────────────────────────
+const _fleetStats = { total: 0, checked: 0, cleared: 0, created: 0 };
+// Track which event_ids are counted in total (initial load + van-created only)
+const _countedInTotal = new Set();
+function _updateFleetStats(patch) {
+  Object.assign(_fleetStats, patch);
+  const el = id => document.getElementById(id);
+  if (el('stat-total'))   el('stat-total').textContent   = _fleetStats.total;
+  if (el('stat-checked')) el('stat-checked').textContent = _fleetStats.checked;
+  if (el('stat-cleared')) el('stat-cleared').textContent = _fleetStats.cleared;
+  if (el('stat-created')) el('stat-created').textContent = _fleetStats.created;
+}
 let fleetMode         = 'stopped';
 let fleetInterval     = null;
 let fleetTimeSec      = 0;
@@ -3385,6 +3521,10 @@ function initFleetVans() {
     paused:         false,
     polyBehind:     null,
     polyAhead:      null,
+    lastCheckDistM: 0,
+    lastCheckLat:   null,
+    lastCheckLon:   null,
+    lastStreet:     '',
   }));
 }
 
@@ -3509,6 +3649,23 @@ async function fleetTick() {
       const pos = vanPosAtDist(van, van.distM);
       if (pos) { van.lat = pos.lat; van.lon = pos.lon; van.bearing = pos.bearing; }
       updateVanMarker(van);
+
+      // Per-block event check: trigger on street change or every 150 m (400 m on freeway)
+      if (dir > 0) {
+        const curStreet  = simStreetNameAtVan(van);
+        const distSince  = van.distM - van.lastCheckDistM;
+        const threshold  = FREEWAY_RE.test(curStreet) ? 400 : 150;
+        const newStreet  = curStreet && curStreet !== van.lastStreet && van.lastStreet !== '';
+        if (distSince >= threshold || newStreet) {
+          const cLat = ((van.lastCheckLat ?? van.lat) + van.lat) / 2;
+          const cLon = ((van.lastCheckLon ?? van.lon) + van.lon) / 2;
+          checkVanBlock(van, cLat, cLon, curStreet || van.lastStreet).catch(() => {});
+          van.lastCheckDistM = van.distM;
+          van.lastCheckLat   = van.lat;
+          van.lastCheckLon   = van.lon;
+          van.lastStreet     = curStreet || van.lastStreet;
+        }
+      }
 
       // Reached destination → advance to next
       if (!isBack && van.distM >= total) {
@@ -3684,7 +3841,7 @@ async function saveVanConfig() {
     });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     closeVanModal();
-    appendFleetMessage('system', '✓ Fleet configuration saved to S3.');
+    appendFleetMessage('system', '✓ Fleet configuration saved.');
   } catch (err) {
     appendFleetMessage('system', `Save failed: ${err.message}`);
   }
@@ -3726,6 +3883,363 @@ function handleFleetKey(e) {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendFleetQuestion(); }
 }
 
+// ── Van event helpers ────────────────────────────────────────────────────────
+
+function vanCityAt(van) {
+  if (van.lat == null || van.lon == null) return 'Oakland';
+  for (const [city, s, w, n, e] of CITY_BBOXES) {
+    if (van.lat >= s && van.lat <= n && van.lon >= w && van.lon <= e) return city;
+  }
+  return 'Oakland';
+}
+
+// ── Fleet event log ───────────────────────────────────────────────────────────
+
+function _flog(level, msg) {
+  const ts = new Date().toTimeString().slice(0, 8);
+  // Tag each entry so filters can select by van and action type
+  const vanMatch = msg.match(/^Van(\d+)\b/);
+  const vanId    = vanMatch ? vanMatch[1] : null;
+  let   action   = 'info';
+  if      (/\bcreated\b/.test(msg))                   action = 'created';
+  else if (/\bcleared\b/.test(msg))                   action = 'cleared';
+  else if (/\bfound\b.*event/.test(msg))              action = 'checked';
+  _fleetLog.push({ ts, level, msg, vanId, action });
+
+  // Live-append only if the modal is open and the entry passes current filters
+  const modal = document.getElementById('fleet-log-modal');
+  if (modal && modal.classList.contains('open') && _logEntryVisible({ vanId, action })) {
+    const body = document.getElementById('fleet-log-body');
+    const span = document.createElement('span');
+    span.className = 'log-' + level;
+    span.textContent = `[${ts}] ${msg}\n`;
+    body.appendChild(span);
+    body.scrollTop = body.scrollHeight;
+    _updateLogCount();
+  }
+}
+
+function _logEntryVisible({ vanId, action }) {
+  const vanSel    = document.getElementById('log-filter-van')?.value || '';
+  const activeBtn = document.querySelector('.log-filter-btn.active');
+  const actionSel = activeBtn ? activeBtn.dataset.action : '';
+  if (vanSel    && vanId  !== vanSel)    return false;
+  if (actionSel && action !== actionSel) return false;
+  return true;
+}
+
+function _setLogActionFilter(btn) {
+  document.querySelectorAll('.log-filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  _renderFleetLog();
+}
+
+function _updateLogCount() {
+  const el = document.getElementById('log-filter-count');
+  if (!el) return;
+  const vanSel    = document.getElementById('log-filter-van')?.value || '';
+  const activeBtn = document.querySelector('.log-filter-btn.active');
+  const actionSel = activeBtn ? activeBtn.dataset.action : '';
+  const visible   = _fleetLog.filter(e => {
+    if (vanSel    && e.vanId  !== vanSel)    return false;
+    if (actionSel && e.action !== actionSel) return false;
+    return true;
+  }).length;
+  el.textContent = `${visible} / ${_fleetLog.length} entries`;
+}
+
+function _renderFleetLog() {
+  const body = document.getElementById('fleet-log-body');
+  if (!body) return;
+  body.innerHTML = '';
+  for (const e of _fleetLog) {
+    if (!_logEntryVisible(e)) continue;
+    const span = document.createElement('span');
+    span.className = 'log-' + e.level;
+    span.textContent = `[${e.ts}] ${e.msg}\n`;
+    body.appendChild(span);
+  }
+  body.scrollTop = body.scrollHeight;
+  _updateLogCount();
+}
+
+function openFleetLog() {
+  document.getElementById('fleet-log-modal').classList.add('open');
+  // Populate van selector from known vans
+  const sel = document.getElementById('log-filter-van');
+  if (sel) {
+    const current = sel.value;
+    sel.innerHTML = '<option value="">All Vans</option>';
+    const ids = [...new Set(_fleetLog.map(e => e.vanId).filter(Boolean))].sort((a,b)=>+a-+b);
+    ids.forEach(id => {
+      const opt = document.createElement('option');
+      opt.value = id; opt.textContent = `Van ${id}`;
+      if (id === current) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  }
+  _renderFleetLog();
+}
+function closeFleetLog() { document.getElementById('fleet-log-modal').classList.remove('open'); }
+function fleetLogClear() {
+  _fleetLog.length = 0;
+  document.getElementById('fleet-log-body').innerHTML = '';
+  _updateLogCount();
+}
+function fleetLogCopy()  {
+  const vanSel    = document.getElementById('log-filter-van')?.value || '';
+  const activeBtn = document.querySelector('.log-filter-btn.active');
+  const actionSel = activeBtn ? activeBtn.dataset.action : '';
+  const lines = _fleetLog
+    .filter(e => (!vanSel || e.vanId === vanSel) && (!actionSel || e.action === actionSel))
+    .map(e => `[${e.ts}] ${e.msg}`).join('\n');
+  navigator.clipboard.writeText(lines).catch(() => {});
+}
+
+// ── Fleet event marker helpers ───────────────────────────────────────────────
+
+function _evLatLon(ev) {
+  // Extract lat/lon from wherever the event stores coordinates
+  if (ev.lat && ev.lon) return [ev.lat, ev.lon];
+  if (ev.coordinates)   return [ev.coordinates.lat, ev.coordinates.lon];
+  if (ev.polygon && ev.polygon.length) {
+    const lat = ev.polygon.reduce((s, p) => s + p.lat, 0) / ev.polygon.length;
+    const lon = ev.polygon.reduce((s, p) => s + p.lon, 0) / ev.polygon.length;
+    return [lat, lon];
+  }
+  if (ev.left_coordinates && ev.right_coordinates) {
+    return [
+      (ev.left_coordinates.lat  + ev.right_coordinates.lat)  / 2,
+      (ev.left_coordinates.lon  + ev.right_coordinates.lon)  / 2,
+    ];
+  }
+  return [null, null];
+}
+
+function fleetPlaceEventMarker(ev, { flash = false, countInTotal = false } = {}) {
+  if (!fleetMap) return;
+  const eid = ev.event_id || ev.id;
+  if (!eid) return;
+  if (fleetEventMarkers.has(eid)) return;   // already on map
+  const [lat, lon] = _evLatLon(ev);
+  if (!lat || !lon) return;
+  const label  = (ev.type || '').replace(/_/g, ' ') + (ev.street ? '\n' + ev.street : '');
+  const marker = L.marker([lat, lon], { icon: makeEventIcon(ev.type) })
+    .bindTooltip(label, { permanent: false, direction: 'top', offset: [0, -8] });
+  if (fleetShowEventMarkers) marker.addTo(fleetMap);
+  fleetEventMarkers.set(eid, marker);
+  if (countInTotal) _countedInTotal.add(eid);
+  if (flash) {
+    // Animate the inner div — Leaflet owns transform on the outer element for positioning
+    const inner = marker.getElement()?.firstElementChild;
+    if (inner) {
+      inner.classList.add('fleet-marker-flashing');
+      setTimeout(() => {
+        inner.classList.remove('fleet-marker-flashing');
+        inner.classList.add('fleet-marker-new');
+      }, 5000);
+    }
+  }
+}
+
+function fleetRemoveEventMarker(event_id) {
+  const _animateAndRemove = (marker, key) => {
+    fleetEventMarkers.delete(key);
+    // Animate the inner div so Leaflet's positioning transform is not disrupted
+    const outer = marker.getElement();
+    const inner = outer?.firstElementChild;
+    const target = inner || outer;
+    if (target) {
+      target.style.transformOrigin = 'center center';
+      // Remove flash/steady classes first to avoid animation conflict
+      target.classList.remove('fleet-marker-flashing', 'fleet-marker-new');
+      target.classList.add('fleet-marker-clearing');
+      setTimeout(() => marker.remove(), 1050);
+    } else {
+      marker.remove();
+    }
+  };
+  const m = fleetEventMarkers.get(event_id);
+  if (m) { _animateAndRemove(m, event_id); return; }
+  for (const [key, marker] of fleetEventMarkers) {
+    if (key === event_id) { _animateAndRemove(marker, key); break; }
+  }
+}
+
+// Returns true if the event_id was counted in the total stat
+function _wasCountedInTotal(event_id) {
+  if (_countedInTotal.has(event_id)) { _countedInTotal.delete(event_id); return true; }
+  return false;
+}
+
+function setFleetShowEventMarkers(show) {
+  fleetShowEventMarkers = show;
+  if (!fleetMap) return;
+  if (show) {
+    fleetEventMarkers.forEach(m => { if (!fleetMap.hasLayer(m)) m.addTo(fleetMap); });
+  } else {
+    fleetEventMarkers.forEach(m => m.remove());
+  }
+}
+
+function _isNearAnyRoute(lat, lon, thresholdM = 75) {
+  // Fast flat-earth bounding-box pre-filter against route coords
+  const dlat = thresholdM / 111000;
+  const dlon = thresholdM / (111000 * Math.cos(lat * Math.PI / 180));
+  for (const van of vans) {
+    if (!van.routeCoords || !van.routeCoords.length) continue;
+    for (let i = 0; i < van.routeCoords.length; i += 2) {
+      const [rlon, rlat] = van.routeCoords[i]; // OSRM: [lon, lat]
+      if (Math.abs(rlat - lat) <= dlat && Math.abs(rlon - lon) <= dlon) return true;
+    }
+  }
+  return false;
+}
+
+// Return a Set of all lowercase street names across all loaded van routes
+function _allRouteStreets() {
+  const s = new Set();
+  for (const van of vans) {
+    if (van.routeStreets) van.routeStreets.forEach(st => { if (st) s.add(st.toLowerCase().trim()); });
+  }
+  return s;
+}
+
+async function loadFleetEventMarkers() {
+  if (!fleetMap) return;
+  const API_BASE = window.ADA_API_BASE || '';
+  const url = `${API_BASE}/api/fleet/events`;
+  _flog('info', `Loading event markers… URL: ${url}`);
+  try {
+    const resp = await fetch(url);
+    _flog(resp.ok ? 'info' : 'err', `GET /api/fleet/events → HTTP ${resp.status}`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (data.error) { _flog('err', `API error: ${data.error}`); return; }
+    const events = data.events || [];
+    // total = ALL active events in DynamoDB — consistent across resets regardless of route coverage
+    _updateFleetStats({ total: events.length });
+    _flog('info', `Received ${events.length} events from API (total)`);
+    let placed = 0, skipped = 0, offRoute = 0;
+    const routeStreetNames = _allRouteStreets();
+    for (const ev of events) {
+      const [lat, lon] = _evLatLon(ev);
+      const eid = ev.event_id || ev.id;
+      if (!lat || !lon || !eid) { skipped++; continue; }
+      // Place markers only for events on current route streets
+      const evStreet = (ev.street || '').toLowerCase().trim();
+      const onRoute = (evStreet && routeStreetNames.has(evStreet)) ||
+                      (!evStreet && _isNearAnyRoute(lat, lon, 75));
+      if (!onRoute) { offRoute++; continue; }
+      fleetPlaceEventMarker(ev, { countInTotal: true });
+      placed++;
+    }
+    _flog('ok', `Placed ${placed} markers on routes (${offRoute} off-route, ${skipped} invalid).`);
+  } catch (err) {
+    _flog('err', `loadFleetEventMarkers exception: ${err}`);
+  }
+}
+
+function randomVanEventType() {
+  const types = Object.keys(VAN_EVENT_TYPES);
+  return types[Math.floor(Math.random() * types.length)];
+}
+
+function shouldClearEvent(ev) {
+  const now      = Date.now();
+  const activeAt = new Date(ev.active_at).getTime();
+  // Give every event at least 60 seconds of life before it can be cleared
+  if (now - activeAt < 60_000) return false;
+  // After the 1-minute grace period, clear at 100% probability
+  return true;
+}
+
+async function checkVanBlock(van, lat, lon, street) {
+  if (!street) return;
+  const API_BASE = window.ADA_API_BASE || '';
+  const qs = new URLSearchParams({ street, lat, lon, radius: 150 });
+  let events = [];
+  try {
+    const resp = await fetch(`${API_BASE}/api/events/block?${qs}`);
+    if (resp.ok) ({ events = [] } = await resp.json());
+    else _flog('warn', `Van${van.id} block check HTTP ${resp.status} for "${street}"`);
+  } catch (err) {
+    _flog('err', `Van${van.id} block check error: ${err}`);
+    return;
+  }
+
+  // Only interact with events whose street is on THIS van's route
+  const vanStreetSet = new Set((van.routeStreets || []).map(s => (s || '').toLowerCase().trim()));
+  const routeEvents  = events.filter(ev => {
+    const es = (ev.street || '').toLowerCase().trim();
+    return !es || vanStreetSet.has(es);
+  });
+
+  if (routeEvents.length) {
+    const now = Date.now();
+    const evDesc = routeEvents.map(e => {
+      const ageMs  = now - new Date(e.active_at).getTime();
+      const ageSec = Math.round(ageMs / 1000);
+      const ageStr = ageSec >= 60 ? `${Math.floor(ageSec/60)}m${ageSec%60}s` : `${ageSec}s`;
+      return `${e.type}(${ageStr})`;
+    }).join(', ');
+    _flog('info', `Van${van.id} on "${street}": found ${routeEvents.length} event(s): ${evDesc}`);
+    _updateFleetStats({ checked: _fleetStats.checked + routeEvents.length });
+  }
+
+  // Place any newly-seen on-route events on the fleet map (discovered, not counted in total)
+  for (const ev of routeEvents) fleetPlaceEventMarker(ev, { countInTotal: false });
+
+  // Probabilistically clear on-route events
+  for (const ev of routeEvents) {
+    if (shouldClearEvent(ev)) {
+      fetch(`${API_BASE}/api/events/${ev.event_id}/clear`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ street: ev.street }),
+      }).then(r => {
+        if (r.ok) {
+          _flog('ok', `Van${van.id} cleared ${ev.type} on "${street}" (id:${ev.event_id})`);
+          fleetRemoveEventMarker(ev.event_id);
+          _updateFleetStats({ cleared: _fleetStats.cleared + 1, total: Math.max(0, _fleetStats.total - 1) });
+        }
+      }).catch(() => {});
+    }
+  }
+
+  // Generate a new event at 10 % probability, only on van's own route street
+  if (!vanStreetSet.has(street.toLowerCase().trim())) return;
+  if (Math.random() >= 0.01) return;
+  const type = randomVanEventType();
+  // DynamoDB check (may lag) + client-side dedup to prevent race-condition duplicates
+  if (routeEvents.some(e => e.type === type)) return;
+  if (!_canCreate(street, type)) return;
+
+  const lifespan    = VAN_EVENT_TYPES[type] * (0.9 + Math.random() * 0.2);
+  const active_at   = new Date().toISOString();
+  const inactive_at = new Date(Date.now() + lifespan * 1000).toISOString();
+  fetch(`${API_BASE}/api/events`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      type, lat, lon, street,
+      city:       vanCityAt(van),
+      van_id:     String(van.id),
+      active_at,
+      inactive_at,
+    }),
+  }).then(async r => {
+    if (!r.ok) { _flog('warn', `Van${van.id} create event HTTP ${r.status}`); return; }
+    const { event_id } = await r.json();
+    if (event_id) {
+      _markCreated(street, type);  // block duplicate creates for 90 s while DynamoDB propagates
+      _flog('ok', `Van${van.id} created ${type} on "${street}" (id:${event_id})`);
+      fleetPlaceEventMarker({ event_id, type, lat, lon, street, active_at, inactive_at }, { flash: true, countInTotal: true });
+      _updateFleetStats({ created: _fleetStats.created + 1, total: _fleetStats.total + 1 });
+    }
+  }).catch(err => _flog('err', `Van${van.id} create event error: ${err}`));
+}
+
 function sendFleetQuestion() {
   const inp = document.getElementById('fleet-question-input');
   if (!inp || !inp.value.trim()) return;
@@ -3743,6 +4257,16 @@ function sendFleetQuestion() {
   if (/clear\s*routes?|hide\s*routes?/.test(cmd)) {
     setFleetShowRoutes(false);
     return appendFleetMessage('system', 'Routes cleared.');
+  }
+
+  // ── Markers ──────────────────────────────────────────────────
+  if (/show\s*markers?/.test(cmd)) {
+    setFleetShowEventMarkers(true);
+    return appendFleetMessage('system', `Markers shown (${fleetEventMarkers.size} on map).`);
+  }
+  if (/clear\s*markers?|hide\s*markers?/.test(cmd)) {
+    setFleetShowEventMarkers(false);
+    return appendFleetMessage('system', 'Markers hidden.');
   }
 
   // ── Map theme ────────────────────────────────────────────────
@@ -3823,7 +4347,8 @@ function sendFleetQuestion() {
   // ── Help / unknown ───────────────────────────────────────────
   appendFleetMessage('system',
     'Commands: stop · start · start 10x · restart · restart 10x · ' +
-    'stop N · start N · restart N · light map · dark map · show routes · clear routes');
+    'stop N · start N · restart N · light map · dark map · ' +
+    'show routes · clear routes · show markers · clear markers');
 }
 
 // ── Tab switching ──────────────────────────────────────────────
@@ -3851,6 +4376,8 @@ function switchTab(tab) {
         renderVanList();
         await new Promise(r => setTimeout(r, 200));
       }
+      // Load existing event markers from DynamoDB after routes are ready
+      loadFleetEventMarkers();
     });
   }
 

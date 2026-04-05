@@ -3,9 +3,12 @@ ADA Driving Assistant — Flask web application.
 """
 
 import json
+import math
 import os
 import time
-from datetime import datetime, timezone
+import uuid
+from datetime import datetime, timedelta, timezone
+from urllib.parse import parse_qs
 
 import boto3
 from dotenv import load_dotenv
@@ -13,6 +16,8 @@ from flask import Flask, jsonify, render_template, request, send_from_directory
 
 import sessions as sess
 from assistant import answer_question
+from events import (clear_event, event_lat_lon, get_events_by_city,
+                    get_events_by_street, get_events_near, put_event)
 from location import (find_nearby_objects, find_objects_on_street,
                       find_street_suggestions, find_streets_mentioned,
                       geocode_address, object_center, random_location)
@@ -28,26 +33,38 @@ load_dotenv()
 
 app = Flask(__name__)
 
-S3_BUCKET   = os.environ.get("S3_BUCKET",   "ada-driving-assistant")
-OBJECTS_KEY = os.environ.get("OBJECTS_KEY", "CA/Berkeley/city_objects.json")
+S3_BUCKET = os.environ.get("S3_BUCKET", "ada-driving-assistant")
 
-# ── S3 objects cache (refresh every 5 minutes) ───────────────────────────────
+# ── DynamoDB events cache (per city, refresh every 5 minutes) ────────────────
 
-_cache: dict = {"objects": [], "loaded_at": 0.0}
-_CACHE_TTL   = 300   # seconds
+_events_cache: dict = {}   # city → (loaded_at, [events])
+_CACHE_TTL = 300           # seconds
+
+_SUPPORTED_CITIES = [
+    "Berkeley", "Albany", "ElCerrito", "Richmond", "Emeryville", "Oakland",
+]
 
 
-def get_objects() -> list[dict]:
+def get_events_for_city(city: str) -> list[dict]:
     now = time.time()
-    if now - _cache["loaded_at"] > _CACHE_TTL:
-        try:
-            s3   = boto3.client("s3")
-            resp = s3.get_object(Bucket=S3_BUCKET, Key=OBJECTS_KEY)
-            _cache["objects"]   = json.loads(resp["Body"].read())
-            _cache["loaded_at"] = now
-        except Exception as exc:
-            app.logger.warning("Could not load objects from S3: %s", exc)
-    return _cache["objects"]
+    entry = _events_cache.get(city)
+    if entry and now - entry[0] < _CACHE_TTL:
+        return entry[1]
+    try:
+        evts = get_events_by_city(city, datetime.now(timezone.utc))
+        _events_cache[city] = (now, evts)
+        return evts
+    except Exception as exc:
+        app.logger.warning("Could not load events for %s from DynamoDB: %s", city, exc)
+        return entry[1] if entry else []
+
+
+def get_all_events() -> list[dict]:
+    """Return active events across all supported cities (for route-based queries)."""
+    result = []
+    for city in _SUPPORTED_CITIES:
+        result.extend(get_events_for_city(city))
+    return result
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -203,7 +220,7 @@ def api_ask():
         if parking:
             location["parking"] = parking
 
-    objects = get_objects()
+    objects = get_all_events()
 
     route_streets_list: list | None = None
     route_json = session.get("route_coords_json", "")
@@ -279,6 +296,192 @@ def api_ask():
                     "sources": sources_with_coords, "usage": usage})
 
 
+# -- Events (van fleet API) ---------------------------------------------------
+
+def _haversine_m(lat1, lon1, lat2, lon2):
+    R = 6_371_000
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlam = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlam / 2) ** 2
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+@app.route("/api/events", methods=["POST"])
+def api_events_create():
+    """Van reports a new event for its current block."""
+    data = request.json or {}
+    required = ("type", "lat", "lon", "street", "city", "active_at", "inactive_at")
+    for field in required:
+        if not data.get(field):
+            return jsonify({"error": f"{field} is required"}), 400
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    active_at   = data["active_at"]
+    inactive_at = data["inactive_at"]
+
+    # active_at must not be more than 60 s in the past, inactive_at must be after active_at
+    try:
+        t_active   = datetime.fromisoformat(active_at.replace("Z", "+00:00"))
+        t_inactive = datetime.fromisoformat(inactive_at.replace("Z", "+00:00"))
+        t_now      = datetime.now(timezone.utc)
+        if t_active < t_now.replace(second=0, microsecond=0) - timedelta(seconds=60):
+            return jsonify({"error": "active_at cannot be in the past"}), 400
+        if t_inactive <= t_active:
+            return jsonify({"error": "inactive_at must be after active_at"}), 400
+    except ValueError:
+        return jsonify({"error": "invalid ISO timestamp"}), 400
+
+    ev = {
+        "event_id":   str(uuid.uuid4()),
+        "type":       data["type"],
+        "lat":        float(data["lat"]),
+        "lon":        float(data["lon"]),
+        "street":     data["street"],
+        "city":       data["city"],
+        "van_id":     data.get("van_id", ""),
+        "active_at":  active_at,
+        "inactive_at": inactive_at,
+    }
+    try:
+        put_event(ev)
+        # Invalidate city cache so next /api/ask sees the new event
+        _events_cache.pop(data["city"], None)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    return jsonify({"event_id": ev["event_id"]})
+
+
+@app.route("/api/events/block")
+def api_events_block():
+    """Return active events near a specific street block."""
+    street    = request.args.get("street", "").strip()
+    lat       = request.args.get("lat")
+    lon       = request.args.get("lon")
+    radius_m  = float(request.args.get("radius", 150))
+
+    if not street or lat is None or lon is None:
+        return jsonify({"error": "street, lat, and lon are required"}), 400
+
+    try:
+        lat = float(lat)
+        lon = float(lon)
+    except ValueError:
+        return jsonify({"error": "lat and lon must be numeric"}), 400
+
+    now = datetime.now(timezone.utc)
+    try:
+        evts = get_events_by_street(street, now)
+        # Further filter by haversine distance
+        evts = [e for e in evts if _haversine_m(lat, lon, e["lat"], e["lon"]) <= radius_m]
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    return jsonify({"events": evts})
+
+
+@app.route("/api/events/<event_id>/clear", methods=["POST"])
+def api_events_clear(event_id):
+    """Van reports it has observed and cleared an event."""
+    data   = request.json or {}
+    street = data.get("street", "").strip()
+    if not street:
+        return jsonify({"error": "street is required"}), 400
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    try:
+        clear_event(street, event_id, now_iso)
+        # Invalidate all city caches (we don't know which city this event belongs to)
+        _events_cache.clear()
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    return jsonify({"cleared": True})
+
+
+@app.route("/api/events")
+def api_events_list():
+    """Return all active events across all cities (fleet map initial load)."""
+    city = request.args.get("city")
+    now  = datetime.now(timezone.utc)
+    try:
+        evts = get_events_by_city(city, now) if city else get_all_events()
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+    return jsonify({"events": evts})
+
+
+# S3 city prefixes for fleet fallback
+_S3_CITY_PREFIXES = {
+    "Berkeley":   "CA/Berkeley",
+    "Albany":     "CA/Albany",
+    "ElCerrito":  "CA/ElCerrito",
+    "Richmond":   "CA/Richmond",
+    "Emeryville": "CA/Emeryville",
+    "Oakland":    "CA/Oakland",
+}
+
+_fleet_s3_cache: dict = {"events": [], "loaded_at": 0.0}
+
+
+def _load_fleet_events_from_s3() -> list[dict]:
+    """
+    Load events from S3 city_objects.json files for all cities.
+    Normalises coordinates to top-level lat/lon and maps id → event_id.
+    Results are cached for CACHE_TTL seconds.
+    """
+    now = time.time()
+    if now - _fleet_s3_cache["loaded_at"] < _CACHE_TTL:
+        return _fleet_s3_cache["events"]
+
+    s3 = boto3.client("s3")
+    result = []
+    for city, prefix in _S3_CITY_PREFIXES.items():
+        try:
+            resp   = s3.get_object(Bucket=S3_BUCKET, Key=f"{prefix}/city_objects.json")
+            events = json.loads(resp["Body"].read().decode("utf-8"))
+            for ev in events:
+                # Normalise id → event_id
+                if "event_id" not in ev:
+                    ev["event_id"] = ev.get("id", "")
+                # Inject top-level lat/lon from wherever the coordinates live
+                if not ev.get("lat"):
+                    lat, lon = event_lat_lon(ev)
+                    if lat:
+                        ev["lat"] = lat
+                        ev["lon"] = lon
+                ev.setdefault("city", city)
+            result.extend(ev for ev in events if ev.get("lat") and ev.get("event_id"))
+        except Exception:
+            pass
+
+    _fleet_s3_cache["events"]    = result
+    _fleet_s3_cache["loaded_at"] = now
+    return result
+
+
+@app.route("/api/fleet/events")
+def api_fleet_events():
+    """
+    Return events for the fleet map initial marker load.
+    Tries DynamoDB first (active events); falls back to S3 city_objects.json
+    if DynamoDB is unavailable or empty.  No time-window filter on S3 events
+    because the fleet view is a simulation.
+    """
+    now = datetime.now(timezone.utc)
+    evts: list[dict] = []
+    try:
+        evts = get_all_events()   # DynamoDB, active events only
+    except Exception:
+        pass
+
+    if not evts:
+        evts = _load_fleet_events_from_s3()
+
+    return jsonify({"events": evts})
+
+
 # -- Consumption ---------------------------------------------------------------
 
 _LAMBDA_FUNCTIONS = [
@@ -313,7 +516,6 @@ def _cw_metric_sum(cw, resource_name: str, metric: str,
 @app.route("/api/consumption")
 def api_consumption():
     """Return Lambda CloudWatch metrics and model info for the consumption page."""
-    from datetime import datetime, timedelta, timezone
     import boto3
 
     session_start_str = request.args.get("session_start", "")
@@ -388,40 +590,42 @@ def api_consumption():
 
 # -- Fleet ---------------------------------------------------------------
 
-FLEET_KEY = "fleet/vans.json"
+FLEET_TABLE     = os.environ.get("FLEET_TABLE", "ada-fleet-config")
+FLEET_CONFIG_KEY = "fleet_vans"
+
+_fleet_ddb_table = None
+
+def _get_fleet_table():
+    global _fleet_ddb_table
+    if _fleet_ddb_table is None:
+        _fleet_ddb_table = boto3.resource("dynamodb").Table(FLEET_TABLE)
+    return _fleet_ddb_table
 
 
 @app.route("/api/fleet/vans")
 def api_fleet_get():
-    """Load fleet van configuration from S3."""
+    """Load fleet van configuration from DynamoDB."""
     try:
-        s3   = boto3.client("s3")
-        resp = s3.get_object(Bucket=S3_BUCKET, Key=FLEET_KEY)
-        return jsonify(json.loads(resp["Body"].read()))
-    except Exception as exc:
-        code = getattr(getattr(exc, "response", None), "__getitem__", lambda k: None)("Error") or {}
-        if isinstance(code, dict) and code.get("Code") == "NoSuchKey":
-            return jsonify([])
-        # botocore ClientError
-        if hasattr(exc, "response") and exc.response.get("Error", {}).get("Code") == "NoSuchKey":
-            return jsonify([])
-        return jsonify([])   # return empty list on any error so frontend can proceed
+        resp = _get_fleet_table().get_item(Key={"config_key": FLEET_CONFIG_KEY})
+        item = resp.get("Item")
+        if item:
+            return jsonify(json.loads(item["config_value"]))
+        return jsonify([])
+    except Exception:
+        return jsonify([])
 
 
 @app.route("/api/fleet/vans", methods=["POST"])
 def api_fleet_save():
-    """Save fleet van configuration to S3."""
+    """Save fleet van configuration to DynamoDB."""
     data = request.json
     if not isinstance(data, list):
         return jsonify({"error": "expected a JSON array"}), 400
     try:
-        s3 = boto3.client("s3")
-        s3.put_object(
-            Bucket=S3_BUCKET,
-            Key=FLEET_KEY,
-            Body=json.dumps(data, separators=(",", ":")),
-            ContentType="application/json",
-        )
+        _get_fleet_table().put_item(Item={
+            "config_key":   FLEET_CONFIG_KEY,
+            "config_value": json.dumps(data, separators=(",", ":")),
+        })
         return jsonify({"ok": True})
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
@@ -447,8 +651,8 @@ try:
             "httpMethod":            http.get("method", "GET"),
             "path":                  path,
             "queryStringParameters": (
-                dict(p.split("=", 1) if "=" in p else (p, "")
-                     for p in qs.split("&") if p) or None
+                # parse_qs decodes + as space and handles %xx, then flatten to single values
+                {k: v[0] for k, v in parse_qs(qs, keep_blank_values=True).items()} or None
             ),
             "headers":               event.get("headers", {}),
             "body":                  event.get("body"),

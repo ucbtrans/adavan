@@ -71,7 +71,7 @@ echo "    API URL       : $API_URL"
 echo "    Web bucket v2 : $WEB_BUCKET_V2"
 
 echo "==> Syncing source files into package/ and rebuilding lambda.zip..."
-for f in app.py assistant.py detections_adapter.py fetch_streets.py \
+for f in app.py assistant.py detections_adapter.py events.py fetch_streets.py \
           lambda_function.py location.py objects.py parking.py \
           sessions.py simulator.py; do
   [[ -f "$f" ]] && cp "$f" "package/$f"
