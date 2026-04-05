@@ -713,8 +713,8 @@ aside h2 {
 .fleet-marker-flashing { animation: fleet-marker-flash .6s ease-in-out infinite; }
 .fleet-marker-new { filter: sepia(1) saturate(6) hue-rotate(10deg) brightness(1.8) drop-shadow(0 0 4px #ffdd00) !important; }
 /* Protest icon: dark blue in light map, bright blue in dark map */
-#fleet-map.fleet-theme-light .protest-icon { filter: sepia(1) saturate(8) hue-rotate(195deg) brightness(0.45) drop-shadow(0 1px 2px rgba(0,0,0,.5)); }
-#fleet-map.fleet-theme-dark  .protest-icon { filter: sepia(1) saturate(8) hue-rotate(195deg) brightness(1.4)  drop-shadow(0 1px 2px rgba(0,0,0,.7)); }
+#fleet-map.fleet-theme-light .protest-icon { filter: sepia(1) saturate(8) hue-rotate(195deg) brightness(0.45) drop-shadow(0 1px 2px rgba(0,0,0,.5)) !important; }
+#fleet-map.fleet-theme-dark  .protest-icon { filter: sepia(1) saturate(8) hue-rotate(195deg) brightness(1.4)  drop-shadow(0 1px 2px rgba(0,0,0,.7)) !important; }
 @keyframes fleet-marker-clear {
   0%   { transform: scale(1);   opacity: 1;   filter: sepia(1) saturate(4) hue-rotate(100deg) brightness(1)   drop-shadow(0 0  0px #00ff44); }
   10%  { transform: scale(2.2); opacity: 1;   filter: sepia(1) saturate(8) hue-rotate(100deg) brightness(5)   drop-shadow(0 0 12px #00ff44); }
@@ -1367,10 +1367,8 @@ function makeEventIcon(type) {
   const emoji = EVENT_EMOJI[type] || '⚠️';
   const isProtest = type === 'protest';
   const cls = isProtest ? 'protest-icon' : '';
-  const html = `<div class="${cls}" style="
-    font-size:18px; line-height:1;
-    filter: drop-shadow(0 1px 2px rgba(0,0,0,.7));
-    cursor:default;">${emoji}</div>`;
+  const baseFilter = isProtest ? '' : 'filter: drop-shadow(0 1px 2px rgba(0,0,0,.7));';
+  const html = `<div class="${cls}" style="font-size:18px; line-height:1; ${baseFilter} cursor:default;">${emoji}</div>`;
   return L.divIcon({ html, iconSize: [22, 22], iconAnchor: [11, 11], className: '' });
 }
 
