@@ -4193,13 +4193,13 @@ function setFleetShowEventMarkers(show) {
   }
 }
 
-function _isNearAnyRoute(lat, lon, thresholdM = 75) {
-  // Fast flat-earth bounding-box pre-filter against route coords
+function _isNearAnyRoute(lat, lon, thresholdM = 150) {
+  // Fast flat-earth bounding-box pre-filter against every route coordinate
   const dlat = thresholdM / 111000;
   const dlon = thresholdM / (111000 * Math.cos(lat * Math.PI / 180));
   for (const van of vans) {
     if (!van.routeCoords || !van.routeCoords.length) continue;
-    for (let i = 0; i < van.routeCoords.length; i += 2) {
+    for (let i = 0; i < van.routeCoords.length; i++) {
       const [rlon, rlat] = van.routeCoords[i]; // OSRM: [lon, lat]
       if (Math.abs(rlat - lat) <= dlat && Math.abs(rlon - lon) <= dlon) return true;
     }
@@ -4230,16 +4230,13 @@ async function loadFleetEventMarkers() {
     const events = data.events || [];
     _flog('info', `Received ${events.length} events from API`);
     let placed = 0, skipped = 0, offRoute = 0;
-    const routeStreetNames = _allRouteStreets();
     for (const ev of events) {
       const [lat, lon] = _evLatLon(ev);
       const eid = ev.event_id || ev.id;
       if (!lat || !lon || !eid) { skipped++; continue; }
-      // Place markers only for events on current route streets
-      const evStreet = (ev.street || '').toLowerCase().trim();
-      const onRoute = (evStreet && routeStreetNames.has(evStreet)) ||
-                      (!evStreet && _isNearAnyRoute(lat, lon, 75));
-      if (!onRoute) { offRoute++; continue; }
+      // Use geographic proximity only — street name alone is too coarse
+      // (a street can be miles long; van may only cross one block of it)
+      if (!_isNearAnyRoute(lat, lon, 150)) { offRoute++; continue; }
       fleetPlaceEventMarker(ev, { countInTotal: true });
       placed++;
     }
