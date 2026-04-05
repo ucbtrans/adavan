@@ -712,9 +712,9 @@ aside h2 {
 }
 .fleet-marker-flashing { animation: fleet-marker-flash .6s ease-in-out infinite; }
 .fleet-marker-new { filter: sepia(1) saturate(6) hue-rotate(10deg) brightness(1.8) drop-shadow(0 0 4px #ffdd00) !important; }
-/* Protest icon: dark blue in light map, bright blue in dark map */
-#fleet-map.fleet-theme-light .protest-icon { filter: sepia(1) saturate(8) hue-rotate(195deg) brightness(0.45) drop-shadow(0 1px 2px rgba(0,0,0,.5)) !important; }
-#fleet-map.fleet-theme-dark  .protest-icon { filter: sepia(1) saturate(8) hue-rotate(195deg) brightness(1.4)  drop-shadow(0 1px 2px rgba(0,0,0,.7)) !important; }
+/* Protest icon: original on light map, bright blue on dark map */
+#fleet-map.fleet-theme-light .protest-icon { filter: drop-shadow(0 1px 2px rgba(0,0,0,.7)) !important; }
+#fleet-map.fleet-theme-dark  .protest-icon { filter: sepia(1) saturate(8) hue-rotate(195deg) brightness(1.4) drop-shadow(0 1px 2px rgba(0,0,0,.7)) !important; }
 @keyframes fleet-marker-clear {
   0%   { transform: scale(1);   opacity: 1;   filter: sepia(1) saturate(4) hue-rotate(100deg) brightness(1)   drop-shadow(0 0  0px #00ff44); }
   10%  { transform: scale(2.2); opacity: 1;   filter: sepia(1) saturate(8) hue-rotate(100deg) brightness(5)   drop-shadow(0 0 12px #00ff44); }
@@ -1315,6 +1315,17 @@ function makeDestIcon() {
   return L.divIcon({ html: svg, iconSize: [28,36], iconAnchor: [14,36], className: '' });
 }
 
+// ── Event type display name overrides ────────────────────────────────────────
+const EVENT_DISPLAY_NAME = {
+  protest:         'people on street',
+  police_blocking: 'police blocking',
+  single_cone:     'cone',
+  cone_group:      'cone group',
+};
+function eventDisplayName(type) {
+  return EVENT_DISPLAY_NAME[type] || (type || '').replace(/_/g, ' ');
+}
+
 // ── Event type → emoji mapping ───────────────────────────────────────────────
 const EVENT_EMOJI = {
   single_cone:       '🔶',
@@ -1342,7 +1353,7 @@ function _makeConeIconHtml(group) {
   const badge = group
     ? `<circle cx="19" cy="5" r="5.5" fill="#111"/><text x="19" y="8.5" text-anchor="middle" font-size="6.5" fill="white" font-family="sans-serif" font-weight="bold">×3</text>`
     : '';
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="16" viewBox="0 0 24 32">
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="24" viewBox="0 0 24 32">
     <!-- base plate -->
     <rect x="1" y="26" width="22" height="5" rx="1.5" fill="#111"/>
     <!-- base collar -->
@@ -1362,14 +1373,17 @@ function makeEventIcon(type) {
   if (coneTypes.has(type)) {
     const isGroup = type === 'cone_group';
     const html = `<div style="filter:drop-shadow(0 1px 3px rgba(0,0,0,.65));cursor:default;line-height:0;">${_makeConeIconHtml(isGroup)}</div>`;
-    return L.divIcon({ html, iconSize: [12, 16], iconAnchor: [6, 16], className: '' });
+    return L.divIcon({ html, iconSize: [18, 24], iconAnchor: [9, 24], className: '' });
   }
   const emoji = EVENT_EMOJI[type] || '⚠️';
   const isProtest = type === 'protest';
+  const isPolice  = type === 'police_blocking' || type === 'police';
   const cls = isProtest ? 'protest-icon' : '';
+  const fontSize = (isProtest || isPolice) ? '28px' : '18px';
+  const size     = (isProtest || isPolice) ? 32 : 22;
   const baseFilter = isProtest ? '' : 'filter: drop-shadow(0 1px 2px rgba(0,0,0,.7));';
-  const html = `<div class="${cls}" style="font-size:18px; line-height:1; ${baseFilter} cursor:default;">${emoji}</div>`;
-  return L.divIcon({ html, iconSize: [22, 22], iconAnchor: [11, 11], className: '' });
+  const html = `<div class="${cls}" style="font-size:${fontSize}; line-height:1; ${baseFilter} cursor:default;">${emoji}</div>`;
+  return L.divIcon({ html, iconSize: [size, size], iconAnchor: [size/2, size/2], className: '' });
 }
 
 function placeEventMarkers(sources) {
@@ -1387,7 +1401,7 @@ function placeEventMarkers(sources) {
       ? (dist * 3.28084 < 1000 ? Math.round(dist * 3.28084) + ' ft' : (dist / 1609.34).toFixed(1) + ' mi')
       : '';
     const offTag   = obj._off_route ? '\n(off route)' : '';
-    const label    = `${(type).replace(/_/g,' ')}${street ? '\n' + street : ''}${distFmt ? '\n' + distFmt + ' ahead' : ''}${offTag}`;
+    const label    = `${eventDisplayName(type)}${street ? '\n' + street : ''}${distFmt ? '\n' + distFmt + ' ahead' : ''}${offTag}`;
     const marker   = L.marker([lat, lon], { icon: makeEventIcon(type) })
       .bindTooltip(label, { permanent: false, direction: 'top', offset: [0, -8] })
       .addTo(sessionMap);
@@ -4063,7 +4077,7 @@ function fleetPlaceEventMarker(ev, { flash = false, countInTotal = false } = {})
   if (fleetEventMarkers.has(eid)) return;   // already on map
   const [lat, lon] = _evLatLon(ev);
   if (!lat || !lon) return;
-  const label  = (ev.type || '').replace(/_/g, ' ') + (ev.street ? '\n' + ev.street : '');
+  const label  = eventDisplayName(ev.type) + (ev.street ? '\n' + ev.street : '');
   const marker = L.marker([lat, lon], { icon: makeEventIcon(ev.type) })
     .bindTooltip(label, { permanent: false, direction: 'top', offset: [0, -8] });
   if (fleetShowEventMarkers) marker.addTo(fleetMap);
@@ -4221,7 +4235,7 @@ async function checkVanBlock(van, lat, lon, street) {
       const ageMs  = now - new Date(e.active_at).getTime();
       const ageSec = Math.round(ageMs / 1000);
       const ageStr = ageSec >= 60 ? `${Math.floor(ageSec/60)}m${ageSec%60}s` : `${ageSec}s`;
-      return `${e.type}(${ageStr})`;
+      return `${eventDisplayName(e.type)}(${ageStr})`;
     }).join(', ');
     _flog('info', `Van${van.id} on "${street}": found ${routeEvents.length} event(s): ${evDesc}`);
     _updateFleetStats({ checked: _fleetStats.checked + routeEvents.length });
@@ -4239,7 +4253,7 @@ async function checkVanBlock(van, lat, lon, street) {
         body: JSON.stringify({ street: ev.street }),
       }).then(r => {
         if (r.ok) {
-          _flog('ok', `Van${van.id} cleared ${ev.type} on "${street}" (id:${ev.event_id})`);
+          _flog('ok', `Van${van.id} cleared ${eventDisplayName(ev.type)} on "${street}" (id:${ev.event_id})`);
           fleetRemoveEventMarker(ev.event_id);
           _updateFleetStats({ cleared: _fleetStats.cleared + 1, total: Math.max(0, _fleetStats.total - 1) });
         }
