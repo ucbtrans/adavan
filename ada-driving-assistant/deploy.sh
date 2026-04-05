@@ -103,13 +103,13 @@ content = content.replace(\"window.ADA_API_BASE || ''\", \"'\" + api_url + \"'\"
 open('_deploy_index.html', 'w', encoding='utf-8').write(content)
 "
 
-# v2: same injection + v2.1 label in title and header
+# v2: same injection + v2.3 label in title and header
 $PYTHON -c "
 api_url = '$API_URL'
 content = open('templates/index.html', encoding='utf-8').read()
 content = content.replace(\"window.ADA_API_BASE || ''\", \"'\" + api_url + \"'\")
-content = content.replace('<title>ADA Driving Assistant</title>', '<title>ADA Driving Assistant v2.1</title>')
-content = content.replace('<h1>ADA <span>Driving Assistant</span></h1>', '<h1>ADA <span>Driving Assistant</span> <span style=\"font-size:0.7rem;color:var(--muted);font-weight:400;\">v2.1</span></h1>')
+content = content.replace('<title>ADA Driving Assistant</title>', '<title>ADA Driving Assistant v2.3</title>')
+content = content.replace('<h1>ADA <span>Driving Assistant</span></h1>', '<h1>ADA <span>Driving Assistant</span> <span style=\"font-size:0.7rem;color:var(--muted);font-weight:400;\">v2.3</span></h1>')
 open('_deploy_index_v2.html', 'w', encoding='utf-8').write(content)
 "
 
