@@ -90,6 +90,13 @@ aws lambda update-function-code \
   --query "[FunctionName, LastModified]" \
   --output text
 
+aws lambda update-function-code \
+  --function-name ada-simulation \
+  --zip-file fileb://lambda.zip \
+  --region "$REGION" \
+  --query "[FunctionName, LastModified]" \
+  --output text
+
 echo "==> Preparing static files for S3..."
 
 # Use python3 if python is not available (WSL)

@@ -136,6 +136,17 @@ def _to_decimal(v) -> Decimal:
     return Decimal(str(v))
 
 
+def _floats_to_decimal(obj):
+    """Recursively convert all float values in a dict/list to Decimal."""
+    if isinstance(obj, float):
+        return _to_decimal(obj)
+    if isinstance(obj, dict):
+        return {k: _floats_to_decimal(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_floats_to_decimal(i) for i in obj]
+    return obj
+
+
 def event_lat_lon(ev: dict) -> tuple[float, float]:
     """
     Extract (lat, lon) from any event structure.
@@ -177,10 +188,7 @@ def event_to_dynamo(ev: dict) -> dict:
     for k, v in ev.items():
         # Map legacy "id" field to "event_id" (DynamoDB sort key)
         key = "event_id" if k == "id" else k
-        if isinstance(v, float):
-            item[key] = _to_decimal(v)
-        else:
-            item[key] = v
+        item[key] = _floats_to_decimal(v)
 
     # Ensure event_id exists (generate one if missing)
     if "event_id" not in item:
