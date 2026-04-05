@@ -712,6 +712,9 @@ aside h2 {
 }
 .fleet-marker-flashing { animation: fleet-marker-flash .6s ease-in-out infinite; }
 .fleet-marker-new { filter: sepia(1) saturate(6) hue-rotate(10deg) brightness(1.8) drop-shadow(0 0 4px #ffdd00) !important; }
+/* Protest icon: dark blue in light map, bright blue in dark map */
+#fleet-map.fleet-theme-light .protest-icon { filter: sepia(1) saturate(8) hue-rotate(195deg) brightness(0.45) drop-shadow(0 1px 2px rgba(0,0,0,.5)); }
+#fleet-map.fleet-theme-dark  .protest-icon { filter: sepia(1) saturate(8) hue-rotate(195deg) brightness(1.4)  drop-shadow(0 1px 2px rgba(0,0,0,.7)); }
 @keyframes fleet-marker-clear {
   0%   { transform: scale(1);   opacity: 1;   filter: sepia(1) saturate(4) hue-rotate(100deg) brightness(1)   drop-shadow(0 0  0px #00ff44); }
   10%  { transform: scale(2.2); opacity: 1;   filter: sepia(1) saturate(8) hue-rotate(100deg) brightness(5)   drop-shadow(0 0 12px #00ff44); }
@@ -1339,7 +1342,7 @@ function _makeConeIconHtml(group) {
   const badge = group
     ? `<circle cx="19" cy="5" r="5.5" fill="#111"/><text x="19" y="8.5" text-anchor="middle" font-size="6.5" fill="white" font-family="sans-serif" font-weight="bold">×3</text>`
     : '';
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="32" viewBox="0 0 24 32">
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="16" viewBox="0 0 24 32">
     <!-- base plate -->
     <rect x="1" y="26" width="22" height="5" rx="1.5" fill="#111"/>
     <!-- base collar -->
@@ -1359,10 +1362,12 @@ function makeEventIcon(type) {
   if (coneTypes.has(type)) {
     const isGroup = type === 'cone_group';
     const html = `<div style="filter:drop-shadow(0 1px 3px rgba(0,0,0,.65));cursor:default;line-height:0;">${_makeConeIconHtml(isGroup)}</div>`;
-    return L.divIcon({ html, iconSize: [24, 32], iconAnchor: [12, 32], className: '' });
+    return L.divIcon({ html, iconSize: [12, 16], iconAnchor: [6, 16], className: '' });
   }
   const emoji = EVENT_EMOJI[type] || '⚠️';
-  const html = `<div style="
+  const isProtest = type === 'protest';
+  const cls = isProtest ? 'protest-icon' : '';
+  const html = `<div class="${cls}" style="
     font-size:18px; line-height:1;
     filter: drop-shadow(0 1px 2px rgba(0,0,0,.7));
     cursor:default;">${emoji}</div>`;
@@ -3612,6 +3617,7 @@ async function loadVanRoute(van) {
 function initFleetMap() {
   if (fleetMap) return;
   fleetMap = L.map('fleet-map', { zoomControl: true }).setView([37.87, -122.28], 12);
+  document.getElementById('fleet-map').classList.add('fleet-theme-light');
   fleetTileLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     maxZoom: 19,
@@ -3627,6 +3633,9 @@ function initFleetMap() {
 function setFleetMapTheme(theme) {
   if (!fleetMap) return;
   fleetMapTheme = theme;
+  const mapEl = document.getElementById('fleet-map');
+  mapEl.classList.toggle('fleet-theme-light', theme === 'light');
+  mapEl.classList.toggle('fleet-theme-dark',  theme === 'dark');
   if (fleetTileLayer) { fleetMap.removeLayer(fleetTileLayer); fleetTileLayer = null; }
   if (theme === 'light') {
     fleetTileLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
