@@ -213,16 +213,24 @@ def event_to_dynamo(ev: dict) -> dict:
     return item
 
 
+def _decimals_to_float(obj):
+    """Recursively convert all Decimal values in a dict/list to float."""
+    if isinstance(obj, Decimal):
+        return float(obj)
+    if isinstance(obj, dict):
+        return {k: _decimals_to_float(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_decimals_to_float(i) for i in obj]
+    return obj
+
+
 def dynamo_to_event(item: dict) -> dict:
     """Convert a DynamoDB item back to a plain event dict (Decimal → float)."""
     ev = {}
     for k, v in item.items():
         if k in ("ttl", "geohash6", "geohash7"):
             continue   # internal fields
-        if isinstance(v, Decimal):
-            ev[k] = float(v)
-        else:
-            ev[k] = v
+        ev[k] = _decimals_to_float(v)
     return ev
 
 

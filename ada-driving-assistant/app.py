@@ -412,73 +412,14 @@ def api_events_list():
     return jsonify({"events": evts})
 
 
-# S3 city prefixes for fleet fallback
-_S3_CITY_PREFIXES = {
-    "Berkeley":   "CA/Berkeley",
-    "Albany":     "CA/Albany",
-    "ElCerrito":  "CA/ElCerrito",
-    "Richmond":   "CA/Richmond",
-    "Emeryville": "CA/Emeryville",
-    "Oakland":    "CA/Oakland",
-}
-
-_fleet_s3_cache: dict = {"events": [], "loaded_at": 0.0}
-
-
-def _load_fleet_events_from_s3() -> list[dict]:
-    """
-    Load events from S3 city_objects.json files for all cities.
-    Normalises coordinates to top-level lat/lon and maps id → event_id.
-    Results are cached for CACHE_TTL seconds.
-    """
-    now = time.time()
-    if now - _fleet_s3_cache["loaded_at"] < _CACHE_TTL:
-        return _fleet_s3_cache["events"]
-
-    s3 = boto3.client("s3")
-    result = []
-    for city, prefix in _S3_CITY_PREFIXES.items():
-        try:
-            resp   = s3.get_object(Bucket=S3_BUCKET, Key=f"{prefix}/city_objects.json")
-            events = json.loads(resp["Body"].read().decode("utf-8"))
-            for ev in events:
-                # Normalise id → event_id
-                if "event_id" not in ev:
-                    ev["event_id"] = ev.get("id", "")
-                # Inject top-level lat/lon from wherever the coordinates live
-                if not ev.get("lat"):
-                    lat, lon = event_lat_lon(ev)
-                    if lat:
-                        ev["lat"] = lat
-                        ev["lon"] = lon
-                ev.setdefault("city", city)
-            result.extend(ev for ev in events if ev.get("lat") and ev.get("event_id"))
-        except Exception:
-            pass
-
-    _fleet_s3_cache["events"]    = result
-    _fleet_s3_cache["loaded_at"] = now
-    return result
-
-
 @app.route("/api/fleet/events")
 def api_fleet_events():
-    """
-    Return events for the fleet map initial marker load.
-    Tries DynamoDB first (active events); falls back to S3 city_objects.json
-    if DynamoDB is unavailable or empty.  No time-window filter on S3 events
-    because the fleet view is a simulation.
-    """
+    """Return active events from DynamoDB for the fleet map initial marker load."""
     now = datetime.now(timezone.utc)
-    evts: list[dict] = []
     try:
-        evts = get_all_events()   # DynamoDB, active events only
-    except Exception:
-        pass
-
-    if not evts:
-        evts = _load_fleet_events_from_s3()
-
+        evts = get_all_events()
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
     return jsonify({"events": evts})
 
 

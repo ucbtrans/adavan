@@ -10,7 +10,7 @@ Parameters:
   DataBucketName:
     Type: String
     Default: ada-driving-assistant
-    Description: Existing S3 bucket holding city_streets.json and city_objects.json
+    Description: Existing S3 bucket holding city_streets.json files
   Stage:
     Type: String
     Default: prod
@@ -23,7 +23,6 @@ Globals:
     Environment:
       Variables:
         S3_BUCKET:        !Ref DataBucketName
-        OBJECTS_KEY:      CA/Berkeley/city_objects.json
         STREETS_KEY:      CA/Berkeley/city_streets.json
         SESSIONS_TABLE:   !Ref SessionsTable
         EVENTS_TABLE:     !Ref EventsTable

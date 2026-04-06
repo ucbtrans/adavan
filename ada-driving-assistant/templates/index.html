@@ -712,6 +712,8 @@ aside h2 {
 }
 .fleet-marker-flashing { animation: fleet-marker-flash .6s ease-in-out infinite; }
 .fleet-marker-new { filter: sepia(1) saturate(6) hue-rotate(10deg) brightness(1.8) drop-shadow(0 0 4px #ffdd00) !important; }
+/* Dark-map label overlay: brighten street/city names for readability */
+.dark-map-labels { filter: brightness(1.3); }
 /* Protest icon: original on light map, bright blue on dark map */
 #fleet-map.fleet-theme-light .protest-icon { filter: drop-shadow(0 1px 2px rgba(0,0,0,.7)) !important; }
 #fleet-map.fleet-theme-dark  .protest-icon { filter: sepia(1) saturate(8) hue-rotate(195deg) brightness(1.4) drop-shadow(0 1px 2px rgba(0,0,0,.7)) !important; }
@@ -922,7 +924,10 @@ aside h2 {
     <div class="fleet-sidebar">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
         <h2 style="margin:0;">🚐 Fleet</h2>
-        <button class="btn btn-ghost" onclick="openFleetLog()" style="font-size:.78rem;padding:3px 10px;" title="Open event log">📋 Log</button>
+        <div style="display:flex;gap:4px;">
+          <button class="btn btn-ghost btn-icon" onclick="openHelp()" title="Help" style="font-size:1.0rem;padding:3px 8px;">❓</button>
+          <button class="btn btn-ghost" onclick="openFleetLog()" style="font-size:.78rem;padding:3px 10px;" title="Open event log">📋 Log</button>
+        </div>
       </div>
       <div id="van-list"></div>
     </div>
@@ -1048,9 +1053,10 @@ aside h2 {
 <div id="help-modal">
   <div class="help-card">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
-      <h2>❓ What can I ask ADA?</h2>
+      <h2 id="help-modal-title">❓ Help</h2>
       <button class="btn btn-ghost" onclick="closeHelp()" style="font-size:.9rem;">✕ Close</button>
     </div>
+    <div id="help-modal-body">
 
     <div class="hc-section">
       <div class="hc-label">🚧 Route Conditions</div>
@@ -1161,6 +1167,7 @@ aside h2 {
         <li>Coverage: Berkeley, Albany, El Cerrito, Richmond, Emeryville, and Oakland, CA</li>
       </ul>
     </div>
+    </div><!-- #help-modal-body -->
   </div>
 </div>
 
@@ -1261,6 +1268,8 @@ let currentMessages = [];
 // ── Map state ────────────────────────────────────────────────────────────
 let sessionMap         = null;
 let sessionMarker      = null;
+let sessionTileLayer   = null;
+let sessionLabelLayer  = null;
 let sessionRouteLayer  = null;
 let sessionDestMarker  = null;
 let sessionEventMarkers = [];   // event/object markers placed after each /api/ask
@@ -1684,13 +1693,18 @@ async function fetchTrafficLights() {
   minLat -= pad; maxLat += pad; minLon -= pad; maxLon += pad;
 
   const allNodes = await loadTrafficSignalsStatic();
+  const routeStreetSet = new Set((routeStreets || []).map(s => s.toLowerCase().trim()).filter(Boolean));
 
   const lights = [];
   for (const node of allNodes) {
     // Quick bbox pre-filter before expensive corridor check
     if (node.lat < minLat || node.lat > maxLat || node.lon < minLon || node.lon > maxLon) continue;
     const distM = findAlongRouteDist(node.lat, node.lon);
-    if (distM === null) continue;   // not within 50 m of the route
+    if (distM === null) continue;   // not within 40 m of the route
+    // Street name filter: if the node has a known street, it must be on the route
+    if (node.street && routeStreetSet.size > 0) {
+      if (!routeStreetSet.has(node.street.toLowerCase().trim())) continue;
+    }
 
     const mph = simStreetMphAt(distM);
     let cycleG, cycleY = 5, cycleR;
@@ -1740,12 +1754,17 @@ async function fetchStopSigns() {
   minLat -= pad; maxLat += pad; minLon -= pad; maxLon += pad;
 
   const allNodes = await loadStopSignsStatic();
+  const routeStreetSet = new Set((routeStreets || []).map(s => s.toLowerCase().trim()).filter(Boolean));
 
   const signs = [];
   for (const node of allNodes) {
     if (node.lat < minLat || node.lat > maxLat || node.lon < minLon || node.lon > maxLon) continue;
     const distM = findAlongRouteDist(node.lat, node.lon);
     if (distM === null) continue;
+    // Street name filter: if the node has a known street, it must be on the route
+    if (node.street && routeStreetSet.size > 0) {
+      if (!routeStreetSet.has(node.street.toLowerCase().trim())) continue;
+    }
     signs.push({ lat: node.lat, lon: node.lon, distM });
   }
   signs.sort((a, b) => a.distM - b.distM);
@@ -1795,7 +1814,7 @@ function findAlongRouteDist(olat, olon) {
     if (d < minPerp) { minPerp = d; bestAlong = cumDist + t * segLen; }
     cumDist += segLen;
   }
-  return minPerp < 50 ? bestAlong : null;
+  return minPerp < 40 ? bestAlong : null;
 }
 
 function checkStopSignCrossed(fromDist, toDist) {
@@ -1982,14 +2001,35 @@ function initRouteTracking(session) {
 }
 
 function initSessionMap(lat, lon, bearing) {
-  if (sessionMap) { sessionMap.remove(); sessionMap = null; sessionMarker = null; }
+  if (sessionMap) { sessionMap.remove(); sessionMap = null; sessionMarker = null; sessionTileLayer = null; sessionLabelLayer = null; }
   sessionMap = L.map('session-map', { center: [lat, lon], zoom: 16 });
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  sessionTileLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
   }).addTo(sessionMap);
   sessionMarker = L.marker([lat, lon], { icon: makeHeadingIcon(bearing) }).addTo(sessionMap);
   setTimeout(() => sessionMap.invalidateSize(), 100);
+}
+
+function setSessionMapTheme(theme) {
+  if (!sessionMap) return;
+  if (sessionTileLayer)  { sessionMap.removeLayer(sessionTileLayer);  sessionTileLayer  = null; }
+  if (sessionLabelLayer) { sessionMap.removeLayer(sessionLabelLayer); sessionLabelLayer = null; }
+  if (theme === 'dark') {
+    sessionTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
+      attribution: '© OpenStreetMap © CARTO',
+      maxZoom: 19,
+    }).addTo(sessionMap);
+    sessionLabelLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png', {
+      maxZoom: 19,
+      className: 'dark-map-labels',
+    }).addTo(sessionMap);
+  } else {
+    sessionTileLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 19,
+    }).addTo(sessionMap);
+  }
 }
 
 function updateLocationPreview(lat, lon, bearing) {
@@ -2469,7 +2509,7 @@ function activateSession(session) {
 // ── End session ───────────────────────────────────────────────────────────
 function endSession() {
   currentSessionId = null;
-  if (sessionMap) { sessionMap.remove(); sessionMap = null; sessionMarker = null; }
+  if (sessionMap) { sessionMap.remove(); sessionMap = null; sessionMarker = null; sessionTileLayer = null; sessionLabelLayer = null; }
   setSimMode('stopped');
   simTimeSec = 0; routeStreets = [];
   clearTrafficLightMarkers();
@@ -2587,6 +2627,27 @@ async function sendQuestion() {
     }
     // No markers yet — treat as a request for route conditions
     question = 'What are the road conditions and obstacles along my route?';
+  }
+
+  // ── Map theme commands ────────────────────────────────────────────────────
+  const qCmd = question.trim().toLowerCase();
+  if (/light/.test(qCmd) && /map|mode|theme/.test(qCmd) || qCmd === 'light') {
+    setSessionMapTheme('light');
+    const ts = new Date().toISOString();
+    const msg = 'Map switched to light theme.';
+    appendMessage('assistant', msg, ts, true);
+    currentMessages.push({ role: 'assistant', content: msg, timestamp: ts });
+    saveChatLocal(currentSessionId, currentMessages);
+    return;
+  }
+  if (/dark/.test(qCmd) && /map|mode|theme/.test(qCmd) || qCmd === 'dark') {
+    setSessionMapTheme('dark');
+    const ts = new Date().toISOString();
+    const msg = 'Map switched to dark theme.';
+    appendMessage('assistant', msg, ts, true);
+    currentMessages.push({ role: 'assistant', content: msg, timestamp: ts });
+    saveChatLocal(currentSessionId, currentMessages);
+    return;
   }
 
   // ── Movement commands: advance/back N blocks ──────────────────────────────
@@ -2920,7 +2981,86 @@ function startQuestionSpeech() {
 // ── Consumption modal ─────────────────────────────────────────────────────────
 
 // ── Help modal ────────────────────────────────────────────────────────────────
-function openHelp()  { document.getElementById('help-modal').classList.add('open'); }
+const FLEET_HELP_TITLE = '❓ Fleet Tab — Help';
+const FLEET_HELP_BODY = `
+  <div class="hc-section">
+    <div class="hc-label">🚐 Van Management</div>
+    <ul>
+      <li>Click any van in the sidebar or on the map to view its details and destination cycle</li>
+      <li>Click <strong>Edit</strong> in the van detail panel to change a destination address</li>
+      <li>Click <strong>Save</strong> to update the route — saved permanently to the cloud</li>
+      <li><strong>Hard Reset</strong> keeps all routes but moves all vans back to their start positions</li>
+    </ul>
+  </div>
+  <div class="hc-section">
+    <div class="hc-label">▶ Simulation Controls</div>
+    <ul>
+      <li><strong>▶</strong> forward &nbsp;|&nbsp; <strong>◀</strong> reverse &nbsp;|&nbsp; <strong>⏩ / ⏪</strong> 10× speed &nbsp;|&nbsp; <strong>⏹</strong> reset all vans</li>
+      <li>Vans cycle through their destinations continuously</li>
+      <li>Speed is 25 mph on city streets, 65 mph on freeways</li>
+    </ul>
+  </div>
+  <div class="hc-section">
+    <div class="hc-label">💬 Chat Commands</div>
+    <ul>
+      <li><strong>start</strong> / <strong>stop</strong> / <strong>restart</strong> — control all vans</li>
+      <li><strong>start 10x</strong> / <strong>restart 10x</strong> — run at 10× speed</li>
+      <li><strong>start 3</strong> / <strong>stop 5</strong> / <strong>restart 7</strong> — control a single van by number</li>
+      <li><strong>light map</strong> / <strong>dark map</strong> (or <strong>light mode</strong> / <strong>dark mode</strong>) — switch map theme</li>
+      <li><strong>show routes</strong> / <strong>clear routes</strong> — toggle route polylines on the map</li>
+      <li><strong>show markers</strong> / <strong>clear markers</strong> — toggle event markers on the map</li>
+      <li><strong>help</strong> — show this guide in the chat log</li>
+    </ul>
+  </div>
+  <div class="hc-section">
+    <div class="hc-label">📍 Event Markers</div>
+    <ul>
+      <li>Markers show active road events detected or generated by fleet vans</li>
+      <li>🟠 <strong>Flashing orange</strong> — new event just appeared</li>
+      <li>🟡 <strong>Steady yellow</strong> — active event (older than 5 s)</li>
+      <li>🟢 <strong>Green burst</strong> — event being cleared by a passing van</li>
+      <li>Event types: construction zone, cone / cone group, car accident, double-parked car, broken car, road barrier, dropped object, people on street, police blocking</li>
+    </ul>
+  </div>
+  <div class="hc-section">
+    <div class="hc-label">📊 Stats Bar</div>
+    <ul>
+      <li><strong>Total</strong> — on-route active events currently shown on the map</li>
+      <li><strong>Checked</strong> — number of block checks vans have performed</li>
+      <li><strong>Cleared</strong> — events vans have cleared (removed from the map)</li>
+      <li><strong>Created</strong> — new events vans have generated during this session</li>
+    </ul>
+  </div>
+  <div class="hc-section">
+    <div class="hc-label">📋 Event Log</div>
+    <ul>
+      <li>Click <strong>📋 Log</strong> to see a real-time log of van block checks and event activity</li>
+      <li>Each entry shows van number, street, event type, action (checked / cleared / created), and marker age</li>
+    </ul>
+  </div>
+  <div class="hc-section">
+    <div class="hc-label">💡 Tips</div>
+    <ul>
+      <li>Van routes are saved to the cloud — they persist across page reloads</li>
+      <li>Routes are loaded from cache on reload for fast startup; only re-fetched when you save a new destination</li>
+      <li>Coverage: Berkeley, Albany, El Cerrito, Richmond, Emeryville, and Oakland, CA</li>
+    </ul>
+  </div>`;
+
+const ADA_HELP_TITLE = '❓ What can I ask ADA?';
+
+// Capture the ADA help body from the static HTML once on load
+document.addEventListener('DOMContentLoaded', () => {
+  window._adaHelpBody = document.getElementById('help-modal-body').innerHTML;
+});
+
+function openHelp() {
+  const isFleet = document.querySelector('.tab-btn[data-tab="fleet"]')?.classList.contains('active');
+  document.getElementById('help-modal-title').textContent = isFleet ? FLEET_HELP_TITLE : ADA_HELP_TITLE;
+  document.getElementById('help-modal-body').innerHTML    = isFleet ? FLEET_HELP_BODY  : (window._adaHelpBody || '');
+  document.getElementById('help-modal').classList.add('open');
+}
+
 function closeHelp() { document.getElementById('help-modal').classList.remove('open'); }
 
 // Close on backdrop click
@@ -3349,6 +3489,7 @@ const CITY_BBOXES = [
 
 let fleetMap          = null;
 let fleetTileLayer    = null;
+let fleetLabelLayer   = null;
 let fleetMapTheme     = 'light';
 let fleetShowRoutes        = true;
 let fleetShowEventMarkers  = true;
@@ -3648,16 +3789,21 @@ function setFleetMapTheme(theme) {
   const mapEl = document.getElementById('fleet-map');
   mapEl.classList.toggle('fleet-theme-light', theme === 'light');
   mapEl.classList.toggle('fleet-theme-dark',  theme === 'dark');
-  if (fleetTileLayer) { fleetMap.removeLayer(fleetTileLayer); fleetTileLayer = null; }
+  if (fleetTileLayer)  { fleetMap.removeLayer(fleetTileLayer);  fleetTileLayer  = null; }
+  if (fleetLabelLayer) { fleetMap.removeLayer(fleetLabelLayer); fleetLabelLayer = null; }
   if (theme === 'light') {
     fleetTileLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
       maxZoom: 19,
     }).addTo(fleetMap);
   } else {
-    fleetTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    fleetTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
       attribution: '© OpenStreetMap © CARTO',
       maxZoom: 19,
+    }).addTo(fleetMap);
+    fleetLabelLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png', {
+      maxZoom: 19,
+      className: 'dark-map-labels',
     }).addTo(fleetMap);
   }
   vans.forEach(v => updateVanMarker(v));  // refresh icon number color
@@ -4380,11 +4526,11 @@ function sendFleetQuestion() {
   }
 
   // ── Map theme ────────────────────────────────────────────────
-  if (/light/.test(cmd) && /map|theme/.test(cmd) || cmd === 'light') {
+  if (/light/.test(cmd) && /map|mode|theme/.test(cmd) || cmd === 'light') {
     setFleetMapTheme('light');
     return appendFleetMessage('system', 'Map switched to light theme.');
   }
-  if (/dark/.test(cmd) && /map|theme/.test(cmd) || cmd === 'dark') {
+  if (/dark/.test(cmd) && /map|mode|theme/.test(cmd) || cmd === 'dark') {
     setFleetMapTheme('dark');
     return appendFleetMessage('system', 'Map switched to dark theme.');
   }
@@ -4454,11 +4600,15 @@ function sendFleetQuestion() {
     return appendFleetMessage('system', 'All vans restarted at 10×.');
   }
 
-  // ── Help / unknown ───────────────────────────────────────────
+  // ── Help ─────────────────────────────────────────────────────
+  if (cmd === 'help') {
+    openHelp();
+    return;
+  }
+
+  // ── Unknown ──────────────────────────────────────────────────
   appendFleetMessage('system',
-    'Commands: stop · start · start 10x · restart · restart 10x · ' +
-    'stop N · start N · restart N · light map · dark map · ' +
-    'show routes · clear routes · show markers · clear markers');
+    'Unknown command. Type <strong>help</strong> or click ❓ for the full guide.');
 }
 
 // ── Tab switching ──────────────────────────────────────────────

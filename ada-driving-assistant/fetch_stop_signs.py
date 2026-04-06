@@ -54,13 +54,35 @@ def haversine_m(lat1, lon1, lat2, lon2):
 
 
 def query_overpass(bbox_str: str, retries: int = 3) -> list[dict]:
-    query = f'[out:json][timeout:30];node["highway"="stop"]({bbox_str});out body;'
+    # Fetch stop-sign nodes AND the named highway ways that contain them
+    # so we can attach a street name to each node.
+    query = f"""[out:json][timeout:60];
+node["highway"="stop"]({bbox_str}) -> .stops;
+.stops out body;
+way(bn.stops)["highway"]["name"] -> .ways;
+.ways out body;"""
     for attempt in range(retries):
         for server in OVERPASS_SERVERS:
             try:
-                r = requests.post(server, data={"data": query}, timeout=35)
+                r = requests.post(server, data={"data": query}, timeout=65)
                 if r.status_code == 200:
-                    return r.json().get("elements", [])
+                    elements = r.json().get("elements", [])
+                    nodes = {e["id"]: e for e in elements if e["type"] == "node"}
+                    ways  = [e for e in elements if e["type"] == "way"]
+                    # Map each node id → street name (from its parent way)
+                    node_to_street: dict[int, str] = {}
+                    for way in ways:
+                        name = (way.get("tags") or {}).get("name", "")
+                        if not name:
+                            continue
+                        for nid in way.get("nodes", []):
+                            if nid in nodes:
+                                node_to_street[nid] = name
+                    return [
+                        {"id": nid, "lat": n["lat"], "lon": n["lon"],
+                         "street": node_to_street.get(nid, "")}
+                        for nid, n in nodes.items()
+                    ]
                 print(f"  HTTP {r.status_code} from {server}")
             except Exception as e:
                 print(f"  Error from {server}: {e}")
@@ -86,10 +108,14 @@ def main():
         for node in nodes:
             lat = round(node["lat"], 6)
             lon = round(node["lon"], 6)
+            street = node.get("street", "")
             # Spatial dedup: skip if within CLUSTER_M of an existing sign
             if any(haversine_m(lat, lon, ex["lat"], ex["lon"]) < CLUSTER_M for ex in signs):
                 continue
-            signs.append({"lat": lat, "lon": lon})
+            entry: dict = {"lat": lat, "lon": lon}
+            if street:
+                entry["street"] = street
+            signs.append(entry)
             added += 1
         print(f"  {len(nodes)} raw nodes -> {added} added ({len(signs)} total)")
         time.sleep(2)  # be polite to Overpass
