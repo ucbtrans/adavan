@@ -714,6 +714,8 @@ aside h2 {
 .fleet-marker-new { filter: sepia(1) saturate(6) hue-rotate(10deg) brightness(1.8) drop-shadow(0 0 4px #ffdd00) !important; }
 /* Dark-map label overlay: brighten street/city names for readability */
 .dark-map-labels { filter: brightness(1.3); }
+/* Van icons: remove Leaflet's default white background + border */
+.leaflet-div-icon { background: transparent !important; border: none !important; padding: 0 !important; box-shadow: none !important; }
 /* Protest icon: original on light map, bright blue on dark map */
 #fleet-map.fleet-theme-light .protest-icon { filter: drop-shadow(0 1px 2px rgba(0,0,0,.7)) !important; }
 #fleet-map.fleet-theme-dark  .protest-icon { filter: sepia(1) saturate(8) hue-rotate(195deg) brightness(1.4) drop-shadow(0 1px 2px rgba(0,0,0,.7)) !important; }
@@ -3490,10 +3492,12 @@ const CITY_BBOXES = [
 let fleetMap          = null;
 let fleetTileLayer    = null;
 let fleetLabelLayer   = null;
-let fleetMapTheme     = 'light';
+let fleetMapTheme     = 'dark';
 let fleetShowRoutes        = true;
 let fleetShowEventMarkers  = true;
 const fleetEventMarkers    = new Map(); // event_id → L.Marker
+const fleetEventExpiry     = new Map(); // event_id → expiry ms (for client-side GC)
+let   _fleetGcTick         = 0;        // counts ticks; GC runs every ~30 s
 const _fleetLog            = [];        // {ts, level, msg} entries
 
 // ── Client-side dedup: prevent race condition creating same type twice on same street ──
@@ -3542,6 +3546,7 @@ function _loadVanImage() {
   if (_vanBaseImage) return Promise.resolve(_vanBaseImage);
   return new Promise(resolve => {
     const img = new Image();
+    img.crossOrigin = 'anonymous';
     img.onload  = () => { _vanBaseImage = img; resolve(img); };
     img.onerror = () => resolve(null);
     img.src = '/van_top.png';
@@ -3550,7 +3555,7 @@ function _loadVanImage() {
 
 function _colorizeVan(img, color) {
   if (_vanColorCache[color]) return _vanColorCache[color];
-  const W = 22, H = 34;
+  const W = 22, H = 32;
   const canvas = document.createElement('canvas');
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext('2d');
@@ -3559,22 +3564,74 @@ function _colorizeVan(img, color) {
   const id = ctx.getImageData(0, 0, W, H);
   const d  = id.data;
 
-  // Parse hex color → rgb components
+  // ── Step 1: BFS flood fill from corners to remove background ──
+  // Sample background color from the top-left corner pixel
+  const bgR = d[0], bgG = d[1], bgB = d[2];
+
+  function cdist(i) {
+    return Math.max(Math.abs(d[i]-bgR), Math.abs(d[i+1]-bgG), Math.abs(d[i+2]-bgB));
+  }
+
+  const BG_TOL = 28;  // max channel distance from corner color → background
+  const visited = new Uint8Array(W * H);
+  const queue = [];
+
+  // Seed from all 4 corners
+  for (const [py, px] of [[0,0],[0,W-1],[H-1,0],[H-1,W-1]]) {
+    const idx = py * W + px;
+    if (!visited[idx] && cdist(idx * 4) < BG_TOL) {
+      visited[idx] = 1;
+      queue.push(idx);
+    }
+  }
+
+  let qi = 0;
+  while (qi < queue.length) {
+    const idx = queue[qi++];
+    d[idx * 4 + 3] = 0;  // make transparent
+    const py = Math.floor(idx / W), px = idx % W;
+    for (const [dy, dx] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+      const ny = py + dy, nx = px + dx;
+      if (ny < 0 || ny >= H || nx < 0 || nx >= W) continue;
+      const ni = ny * W + nx;
+      if (!visited[ni] && cdist(ni * 4) < BG_TOL) {
+        visited[ni] = 1;
+        queue.push(ni);
+      }
+    }
+  }
+
+  // ── Step 2: Colorize remaining (car) pixels ──
   const n  = parseInt(color.replace('#', ''), 16);
   const cr = (n >> 16) & 255, cg = (n >> 8) & 255, cb = n & 255;
 
   for (let i = 0; i < d.length; i += 4) {
-    // Drop near-transparent or near-white pixels (background)
-    if (d[i+3] < 20 || (d[i] > 230 && d[i+1] > 230 && d[i+2] > 230)) {
-      d[i+3] = 0;
-      continue;
-    }
-    // Multiply-blend each pixel with the van color
-    d[i]   = Math.round(d[i]   * cr / 255);
-    d[i+1] = Math.round(d[i+1] * cg / 255);
-    d[i+2] = Math.round(d[i+2] * cb / 255);
+    if (d[i + 3] < 20) continue;  // skip transparent (removed background)
+    const r = d[i], g = d[i+1], b = d[i+2];
+    // Preserve saturated pixels (red tail lights)
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+    if (mx > 0 && (mx - mn) / mx > 0.25) continue;
+    // Multiply-blend car body with van color
+    d[i]   = Math.round(r * cr / 255);
+    d[i+1] = Math.round(g * cg / 255);
+    d[i+2] = Math.round(b * cb / 255);
   }
   ctx.putImageData(id, 0, 0);
+
+  // ── Step 3: Draw tail lights (rear = top) and headlights (front = bottom) ──
+  // White headlights (front = top of icon)
+  ctx.fillStyle = 'rgba(255, 255, 200, 0.95)';
+  ctx.beginPath();
+  ctx.ellipse(8, 7, 2.5, 1.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(W - 8, 7, 2.5, 1.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Red tail lights (rear = bottom of icon)
+  ctx.fillStyle = '#e81010';
+  ctx.fillRect(6, H - 9, 4, 3);        // left tail light
+  ctx.fillRect(W - 10, H - 9, 4, 3);   // right tail light
 
   const url = canvas.toDataURL();
   _vanColorCache[color] = url;
@@ -3591,15 +3648,15 @@ function makeVanIcon(num, color, bearing) {
     : '0 0 3px rgba(0,0,0,0.95),0 0 6px rgba(0,0,0,0.7)';
   return L.divIcon({
     className: '',
-    html: `<div style="transform:rotate(${rot}deg);transform-origin:11px 17px;width:22px;height:34px;position:relative;">
-      <img src="${src}" style="width:22px;height:34px;display:block;"/>
+    html: `<div style="transform:rotate(${rot}deg);transform-origin:11px 16px;width:22px;height:32px;position:relative;background:transparent;">
+      <img src="${src}" style="width:22px;height:32px;display:block;"/>
       <span style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
-                   font-size:12px;font-weight:700;color:${numColor};line-height:1;
+                   font-size:11px;font-weight:700;color:${numColor};line-height:1;
                    text-shadow:${numShadow};
                    pointer-events:none;">${num}</span>
     </div>`,
-    iconSize:   [22, 34],
-    iconAnchor: [11, 17],
+    iconSize:   [22, 32],
+    iconAnchor: [11, 16],
   });
 }
 
@@ -3770,12 +3827,16 @@ async function loadVanRoute(van) {
 function initFleetMap() {
   if (fleetMap) return;
   fleetMap = L.map('fleet-map', { zoomControl: true }).setView([37.87, -122.28], 12);
-  document.getElementById('fleet-map').classList.add('fleet-theme-light');
-  fleetTileLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  fleetMapTheme = 'dark';
+  document.getElementById('fleet-map').classList.add('fleet-theme-dark');
+  fleetTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © <a href="https://carto.com/">CARTO</a>',
     maxZoom: 19,
   }).addTo(fleetMap);
-  fleetMapTheme = 'light';
+  fleetLabelLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png', {
+    maxZoom: 19,
+    className: 'dark-map-labels',
+  }).addTo(fleetMap);
   // Pre-load the van image; once ready, refresh all markers with colorized icons
   _loadVanImage().then(img => {
     if (!img) return;
@@ -3878,6 +3939,15 @@ async function fleetTick() {
     fleetTimeSec = Math.max(0, fleetTimeSec + simSec * dir);
     updateFleetTime();
     updateFleetSpeedLabel();
+
+    // Client-side GC: sweep expired markers every 30 s (no backend calls)
+    if (++_fleetGcTick >= 300) {
+      _fleetGcTick = 0;
+      const now = Date.now();
+      for (const [eid, expiryMs] of fleetEventExpiry) {
+        if (now >= expiryMs) fleetRemoveEventMarker(eid);
+      }
+    }
   } finally {
     _fleetTickBusy = false;
   }
@@ -4285,6 +4355,7 @@ function fleetPlaceEventMarker(ev, { flash = false, countInTotal = false } = {})
     .bindTooltip(label, { permanent: false, direction: 'top', offset: [0, -8] });
   if (fleetShowEventMarkers) marker.addTo(fleetMap);
   fleetEventMarkers.set(eid, marker);
+  if (ev.inactive_at) fleetEventExpiry.set(eid, new Date(ev.inactive_at).getTime());
   if (countInTotal) _countedInTotal.add(eid);
   if (flash) {
     // Animate the inner div — Leaflet owns transform on the outer element for positioning
@@ -4302,6 +4373,7 @@ function fleetPlaceEventMarker(ev, { flash = false, countInTotal = false } = {})
 function fleetRemoveEventMarker(event_id) {
   const _animateAndRemove = (marker, key) => {
     fleetEventMarkers.delete(key);
+    fleetEventExpiry.delete(key);
     // Animate the inner div so Leaflet's positioning transform is not disrupted
     const outer = marker.getElement();
     const inner = outer?.firstElementChild;
@@ -4395,8 +4467,16 @@ async function loadFleetEventMarkers() {
   }
 }
 
-function randomVanEventType() {
-  const types = Object.keys(VAN_EVENT_TYPES);
+const FREEWAY_EVENT_TYPES = [
+  'single_cone', 'cone_group', 'construction_zone',
+  'car_accident', 'broken_car', 'road_barrier',
+  'dropped_object', 'police_blocking',
+];
+
+function randomVanEventType(street = '') {
+  const types = FREEWAY_RE.test(street)
+    ? FREEWAY_EVENT_TYPES
+    : Object.keys(VAN_EVENT_TYPES);
   return types[Math.floor(Math.random() * types.length)];
 }
 
@@ -4466,7 +4546,7 @@ async function checkVanBlock(van, lat, lon, street) {
   // Generate a new event at 10 % probability, only on van's own route street
   if (!vanStreetSet.has(street.toLowerCase().trim())) return;
   if (Math.random() >= 0.01) return;
-  const type = randomVanEventType();
+  const type = randomVanEventType(street);
   // DynamoDB check (may lag) + client-side dedup to prevent race-condition duplicates
   if (routeEvents.some(e => e.type === type)) return;
   if (!_canCreate(street, type)) return;
