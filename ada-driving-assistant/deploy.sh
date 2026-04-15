@@ -70,32 +70,51 @@ WEB_BUCKET_V2=$(aws cloudformation describe-stacks \
 echo "    API URL       : $API_URL"
 echo "    Web bucket v2 : $WEB_BUCKET_V2"
 
-echo "==> Syncing source files into package/ and rebuilding lambda.zip..."
+echo "==> Syncing source files into SAM build directory and rebuilding lambda.zip..."
+SAM_BUILD_API=".aws-sam/build/ApiFunction"
+SAM_BUILD_SIM=".aws-sam/build/SimulationFunction"
 for f in app.py assistant.py detections_adapter.py events.py fetch_streets.py \
           lambda_function.py location.py objects.py parking.py \
           sessions.py simulator.py; do
-  [[ -f "$f" ]] && cp "$f" "package/$f"
+  [[ -f "$f" ]] && cp "$f" "$SAM_BUILD_API/$f"
+  [[ -f "$f" ]] && cp "$f" "$SAM_BUILD_SIM/$f"
 done
-# zip from INSIDE package/ so files land at root (not package/app.py)
-(cd package && python -m zipfile -c ../lambda.zip .) 2>/dev/null || \
-(cd package && python3 -m zipfile -c ../lambda.zip .) || \
-(cd package && py -m zipfile -c ../lambda.zip .)
+# zip from INSIDE SAM build dir so files land at root (not path/app.py)
+(cd "$SAM_BUILD_API" && python -m zipfile -c ../../lambda.zip .) 2>/dev/null || \
+(cd "$SAM_BUILD_API" && python3 -m zipfile -c ../../lambda.zip .) || \
+(cd "$SAM_BUILD_API" && py -m zipfile -c ../../lambda.zip .)
 echo "    lambda.zip: $(ls -lh lambda.zip | awk '{print $5}')"
 
-echo "==> Uploading Lambda code directly..."
-aws lambda update-function-code \
-  --function-name ada-api \
-  --zip-file fileb://lambda.zip \
+# Package is >70MB so must upload via S3 before updating Lambda
+SAM_BUCKET=$(aws cloudformation describe-stack-resource \
+  --stack-name "aws-sam-cli-managed-default" \
+  --logical-resource-id "SamCliSourceBucket" \
   --region "$REGION" \
-  --query "[FunctionName, LastModified]" \
-  --output text
+  --query "StackResourceDetail.PhysicalResourceId" \
+  --output text 2>/dev/null || echo "")
 
-aws lambda update-function-code \
-  --function-name ada-simulation \
-  --zip-file fileb://lambda.zip \
-  --region "$REGION" \
-  --query "[FunctionName, LastModified]" \
-  --output text
+if [[ -n "$SAM_BUCKET" ]]; then
+  S3_KEY="manual-deploy/lambda-$(date +%s).zip"
+  echo "==> Uploading lambda.zip to s3://$SAM_BUCKET/$S3_KEY..."
+  aws s3 cp lambda.zip "s3://$SAM_BUCKET/$S3_KEY" --region "$REGION"
+
+  echo "==> Updating Lambda code from S3..."
+  aws lambda update-function-code \
+    --function-name ada-api \
+    --s3-bucket "$SAM_BUCKET" --s3-key "$S3_KEY" \
+    --region "$REGION" \
+    --query "[FunctionName, LastModified]" \
+    --output text
+
+  aws lambda update-function-code \
+    --function-name ada-simulation \
+    --s3-bucket "$SAM_BUCKET" --s3-key "$S3_KEY" \
+    --region "$REGION" \
+    --query "[FunctionName, LastModified]" \
+    --output text
+else
+  echo "    WARNING: SAM bucket not found — skipping direct Lambda update (SAM deploy already handled it)"
+fi
 
 echo "==> Preparing static files for S3..."
 

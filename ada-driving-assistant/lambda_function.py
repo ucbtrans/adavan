@@ -56,7 +56,7 @@ def _process_city(s3, city: str, prefix: str, now: datetime) -> dict:
     """Generate new events for one city and write them to DynamoDB."""
     # 1. Load streets and compute event count
     streets  = _load_streets_from_s3(s3, prefix)
-    n_events = max(1, len(streets) // 3)
+    n_events = min(75, max(1, len(streets) // 10))
     logger.info("%s: %d streets → %d events", city, len(streets), n_events)
 
     # 2. Generate new events for this city's streets
