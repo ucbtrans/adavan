@@ -258,15 +258,17 @@ def get_events_by_city(city: str, now: datetime) -> list[dict]:
     """Query city-index for all active events in a city."""
     table  = _get_table()
     result = []
+    now_iso = now.isoformat()
     kwargs = {
         "IndexName": "city-index",
         "KeyConditionExpression": Key("city").eq(city),
+        # Push active-window filter to DynamoDB so we don't transfer 30K expired items
+        "FilterExpression": Attr("inactive_at").gt(now_iso) & Attr("active_at").lte(now_iso),
     }
     while True:
         resp = table.query(**kwargs)
         for item in resp.get("Items", []):
-            if _is_active(item, now):
-                result.append(dynamo_to_event(item))
+            result.append(dynamo_to_event(item))
         lek = resp.get("LastEvaluatedKey")
         if not lek:
             break

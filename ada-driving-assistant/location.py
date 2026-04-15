@@ -86,15 +86,19 @@ def is_oneway(street: dict) -> bool:
 
 # ── Geocoding ────────────────────────────────────────────────────────────────
 
+_SUPPORTED_CITIES = {
+    "berkeley", "albany", "el cerrito", "richmond", "emeryville", "oakland",
+}
+
 def geocode_address(address: str) -> dict | None:
     """
     Geocode an address string.
-    Appends ', Berkeley, CA' if city/state not mentioned.
+    Appends ', Berkeley, CA' if no supported city/state is mentioned.
     Returns {lat, lon, address} or None.
     """
-    query = address
-    if "berkeley" not in address.lower():
-        query = f"{address}, Berkeley, CA"
+    addr_lower = address.lower()
+    has_city = any(city in addr_lower for city in _SUPPORTED_CITIES)
+    query = address if has_city else f"{address}, Berkeley, CA"
     try:
         r = requests.get(
             f"{NOMINATIM_URL}/search",

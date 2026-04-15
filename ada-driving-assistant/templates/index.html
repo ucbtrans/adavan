@@ -2605,8 +2605,8 @@ async function sendQuestion() {
   }
 
   // Intercept marker control commands — handle locally without calling the API
-  const CLEAR_MARKERS_RE = /\b(clear|remove|hide|erase|delete)\b.{0,40}\b(marker|image|icon|obstacle|event|hazard)/i;
-  const SHOW_MARKERS_RE  = /\b(show|display|add|put|restore)\b.{0,40}\b(marker|image|icon|obstacle|event|hazard)/i;
+  const CLEAR_MARKERS_RE = /\b(clear|remove|hide|erase|delete)\b.{0,40}\b(markers?|images?|icons?|obstacles?|events?|hazards?)/i;
+  const SHOW_MARKERS_RE  = /\b(show|display|add|put|restore)\b.{0,40}\b(markers?|images?|icons?|obstacles?|events?|hazards?)/i;
   if (CLEAR_MARKERS_RE.test(question)) {
     clearEventMarkers();
     const ts = new Date().toISOString();
@@ -2625,6 +2625,13 @@ async function sendQuestion() {
       appendMessage('assistant', msg, ts, true);
       currentMessages.push({ role: 'assistant', content: msg, timestamp: ts });
       saveChatLocal(currentSessionId, currentMessages);
+      return;
+    }
+    // No session started — tell user to set up a route first
+    if (!currentSessionId) {
+      const ts = new Date().toISOString();
+      const msg = 'Please start a session first by entering your origin address above.';
+      appendMessage('assistant', msg, ts, true);
       return;
     }
     // No markers yet — treat as a request for route conditions
@@ -2713,15 +2720,25 @@ async function sendQuestion() {
       current_bearing: routeCurrentPos.bearing,
       current_dist_m: routeDistM,
     } : {};
-    const r = await fetch(API_BASE + '/api/ask', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({session_id: currentSessionId, question, ...posPayload})
-    });
-    const d = await r.json();
+    let d;
+    try {
+      const r = await fetch(API_BASE + '/api/ask', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({session_id: currentSessionId, question, ...posPayload})
+      });
+      d = await r.json();
+    } catch(netErr) {
+      removeTyping();
+      console.error('ADA fetch error:', netErr);
+      appendMessage('assistant', `Network error: ${netErr.message || netErr}. API URL: ${API_BASE || '(empty — not deployed?)'}`, new Date().toISOString(), true);
+      document.getElementById('send-btn').disabled = false;
+      loadSessions();
+      return;
+    }
     removeTyping();
     const replyTs = new Date().toISOString();
-    const reply   = d.error ? 'Error: ' + d.error : d.answer;
+    const reply   = d.error ? 'Error: ' + d.error : (d.answer ?? '(empty response)');
     appendMessage('assistant', reply, replyTs, true);
     if (document.getElementById('auto-speak-cb')?.checked) speakText(reply);
     currentMessages.push({ role: 'assistant', content: reply, timestamp: replyTs });
@@ -2738,7 +2755,8 @@ async function sendQuestion() {
     saveChatLocal(currentSessionId, currentMessages);
   } catch(e) {
     removeTyping();
-    appendMessage('assistant', 'Connection error. Please try again.', new Date().toISOString(), true);
+    console.error('ADA sendQuestion JS error:', e);
+    appendMessage('assistant', `Error: ${e.message || e}`, new Date().toISOString(), true);
   }
 
   document.getElementById('send-btn').disabled = false;

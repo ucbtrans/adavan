@@ -281,7 +281,11 @@ def api_ask():
 
     history       = sess.get_history(session_id, session=session)
 
-    answer, usage = answer_question(question, location, nearby, history)
+    try:
+        answer, usage = answer_question(question, location, nearby, history)
+    except Exception as exc:
+        app.logger.error("Anthropic API error: %s", exc)
+        return jsonify({"error": f"AI service error: {exc}"}), 503
 
     sess.add_message(session_id, "user",      question)
     sess.add_message(session_id, "assistant", answer)
@@ -601,10 +605,14 @@ try:
         }
 
     def handler(event, context):
-        return awsgi.response(
+        resp = awsgi.response(
             app, _normalise_event(event), context,
             base64_content_types={"image/jpeg"},
         )
+        # HTTP API Gateway requires statusCode as int; aws-wsgi returns it as str
+        if isinstance(resp.get("statusCode"), str):
+            resp["statusCode"] = int(resp["statusCode"])
+        return resp
 
 except ImportError:
     pass  # aws-wsgi not installed in local dev; Flask runs directly
