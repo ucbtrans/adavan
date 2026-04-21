@@ -85,7 +85,7 @@ def get_advisory(position: dict, detections: list[dict]) -> str:
         lines.append("No hazards detected.")
 
     msg = client.messages.create(
-        model="claude-opus-4-6",
+        model="claude-haiku-4-5-20251001",
         max_tokens=256,
         system=_ADVISORY_SYSTEM,
         messages=[{"role": "user", "content": "\n".join(lines)}],
@@ -255,7 +255,7 @@ def answer_question(question: str,
     # Pass address as user_id so calls are labelled in the Anthropic Console
     address_tag = location.get("address", "unknown")[:512]
     msg = client.messages.create(
-        model="claude-opus-4-6",
+        model="claude-haiku-4-5-20251001",
         max_tokens=512,
         system=_QA_SYSTEM,
         messages=messages,
@@ -265,6 +265,6 @@ def answer_question(question: str,
     usage = {
         "input_tokens":  msg.usage.input_tokens,
         "output_tokens": msg.usage.output_tokens,
-        "model":         "claude-opus-4-6",
+        "model":         "claude-haiku-4-5-20251001",
     }
     return msg.content[0].text.strip(), usage
