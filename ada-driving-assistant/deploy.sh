@@ -17,19 +17,13 @@ REGION="${AWS_DEFAULT_REGION:-us-west-2}"
 # ── Parse arguments ────────────────────────────────────────────────────────
 ENV="prod"
 GUIDED=false
-for arg in "$@"; do
-  case "$arg" in
-    --env) ;;                    # handled by next iteration
-    dev|prod) ENV="$arg" ;;
-    --guided) GUIDED=true ;;
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --env)   ENV="$2"; shift 2 ;;
+    --guided) GUIDED=true; shift ;;
+    *) shift ;;
   esac
 done
-# handle "--env dev" as two separate args
-for i in "${!@}"; do
-  if [[ "${@:$i:1}" == "--env" ]]; then
-    ENV="${@:$((i+1)):1}"
-  fi
-done 2>/dev/null || true
 
 if [[ "$ENV" == "dev" ]]; then
   STACK_NAME="ada-driving-assistant-dev"
