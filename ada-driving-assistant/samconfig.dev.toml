@@ -1,0 +1,14 @@
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "ada-driving-assistant-dev"
+resolve_s3 = true
+s3_prefix = "ada-driving-assistant-dev"
+confirm_changeset = false
+capabilities = "CAPABILITY_IAM"
+disable_rollback = true
+parameter_overrides = "DataBucketName=\"ada-driving-assistant\" Stage=\"prod\" Env=\"dev\""
+image_repositories = []
+
+[default.global.parameters]
+region = "us-west-2"

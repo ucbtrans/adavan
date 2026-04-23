@@ -9,6 +9,7 @@ package/
 .aws-packaged.yaml
 .aws-template-build.yaml
 samconfig.toml
+samconfig.dev.toml
 
 # Python
 __pycache__/

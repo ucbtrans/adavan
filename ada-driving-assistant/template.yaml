@@ -14,6 +14,14 @@ Parameters:
   Stage:
     Type: String
     Default: prod
+  Env:
+    Type: String
+    Default: prod
+    AllowedValues: [prod, dev]
+    Description: Deployment environment (prod keeps existing resource names, dev adds -dev suffix)
+
+Conditions:
+  IsProd: !Equals [!Ref Env, prod]
 
 Globals:
   Function:
@@ -22,11 +30,11 @@ Globals:
     MemorySize: 512
     Environment:
       Variables:
-        S3_BUCKET:        !Ref DataBucketName
-        STREETS_KEY:      CA/Berkeley/city_streets.json
-        SESSIONS_TABLE:   !Ref SessionsTable
-        EVENTS_TABLE:     !Ref EventsTable
-        FLEET_TABLE:      !Ref FleetConfigTable
+        S3_BUCKET:         !Ref DataBucketName
+        STREETS_KEY:       CA/Berkeley/city_streets.json
+        SESSIONS_TABLE:    !Ref SessionsTable
+        EVENTS_TABLE:      !Ref EventsTable
+        FLEET_TABLE:       !Ref FleetConfigTable
         ANTHROPIC_API_KEY: !Ref AnthropicApiKey
 
 Resources:
@@ -46,11 +54,11 @@ Resources:
         AllowHeaders:
           - Content-Type
 
-  # ── API Lambda (Flask + Mangum) ─────────────────────────────────────────────
+  # ── API Lambda (Flask + aws-wsgi) ──────────────────────────────────────────
   ApiFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: ada-api
+      FunctionName: !If [IsProd, "ada-api", "ada-api-dev"]
       CodeUri: .
       Handler: app.handler
       Policies:
@@ -86,7 +94,7 @@ Resources:
   SimulationFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: ada-simulation
+      FunctionName: !If [IsProd, "ada-simulation", "ada-simulation-dev"]
       CodeUri: .
       Handler: lambda_function.handler
       Timeout: 300
@@ -100,14 +108,14 @@ Resources:
           Type: Schedule
           Properties:
             Schedule: cron(0 6 * * ? *)
-            Name: ada-daily-simulation
+            Name: !If [IsProd, "ada-daily-simulation", "ada-daily-simulation-dev"]
             Description: Generate daily traffic events for all cities
 
   # ── DynamoDB events table ───────────────────────────────────────────────────
   EventsTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: ada-events
+      TableName: !If [IsProd, "ada-events", "ada-events-dev"]
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
         - { AttributeName: street,   AttributeType: S }
@@ -136,7 +144,7 @@ Resources:
   FleetConfigTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: ada-fleet-config
+      TableName: !If [IsProd, "ada-fleet-config", "ada-fleet-config-dev"]
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
         - { AttributeName: config_key, AttributeType: S }
@@ -147,7 +155,7 @@ Resources:
   SessionsTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: ada-sessions
+      TableName: !If [IsProd, "ada-sessions", "ada-sessions-dev"]
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
         - AttributeName: id
@@ -159,14 +167,14 @@ Resources:
         AttributeName: ttl
         Enabled: true
 
-  # ── Web S3 bucket v2 (static site: index.html + logo) ───────────────────────
-  # NOTE: v1 bucket (ada-driving-assistant-web-<acct>) and its CloudFront
-  # distribution (d1v86oas7j7jis.cloudfront.net) were created by a previous
-  # stack and are preserved as-is outside this template.
+  # ── Web S3 bucket (static site: index.html + logo) ─────────────────────────
   WebBucketV2:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub ada-driving-assistant-web-v2-${AWS::AccountId}
+      BucketName: !If
+        - IsProd
+        - !Sub "ada-driving-assistant-web-v2-${AWS::AccountId}"
+        - !Sub "ada-driving-assistant-web-dev-${AWS::AccountId}"
       WebsiteConfiguration:
         IndexDocument: index.html
       PublicAccessBlockConfiguration:
@@ -186,7 +194,7 @@ Resources:
             Action: s3:GetObject
             Resource: !Sub ${WebBucketV2.Arn}/*
 
-  # ── CloudFront distribution v2 (HTTPS for the v2 web bucket) ────────────────
+  # ── CloudFront distribution (HTTPS for the web bucket) ──────────────────────
   CloudFrontDistributionV2:
     Type: AWS::CloudFront::Distribution
     Properties:
@@ -213,32 +221,33 @@ Outputs:
     Description: API Gateway endpoint URL
     Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}
     Export:
-      Name: ADAApiUrl
+      Name: !If [IsProd, "ADAApiUrl", "ADAApiUrl-dev"]
 
   CloudFrontUrlV1:
     Description: Existing v1 CloudFront URL (managed outside this stack)
     Value: https://d1v86oas7j7jis.cloudfront.net
+    Condition: IsProd
 
   WebsiteUrlV2:
-    Description: S3 static website URL (v2)
+    Description: S3 static website URL
     Value: !GetAtt WebBucketV2.WebsiteURL
     Export:
-      Name: ADAWebsiteUrlV2
+      Name: !If [IsProd, "ADAWebsiteUrlV2", "ADAWebsiteUrlV2-dev"]
 
   CloudFrontUrlV2:
-    Description: HTTPS CloudFront URL for v2
+    Description: HTTPS CloudFront URL
     Value: !Sub https://${CloudFrontDistributionV2.DomainName}
     Export:
-      Name: ADACloudFrontUrlV2
+      Name: !If [IsProd, "ADACloudFrontUrlV2", "ADACloudFrontUrlV2-dev"]
 
   WebBucketNameV2:
-    Description: Web S3 bucket name (v2)
+    Description: Web S3 bucket name
     Value: !Ref WebBucketV2
     Export:
-      Name: ADAWebBucketV2
+      Name: !If [IsProd, "ADAWebBucketV2", "ADAWebBucketV2-dev"]
 
   EventsTableArn:
     Description: DynamoDB events table ARN
     Value: !GetAtt EventsTable.Arn
     Export:
-      Name: ADAEventsTableArn
+      Name: !If [IsProd, "ADAEventsTableArn", "ADAEventsTableArn-dev"]
