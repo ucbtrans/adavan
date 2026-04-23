@@ -30,11 +30,13 @@ if [[ "$ENV" == "dev" ]]; then
   SAM_CONFIG="samconfig.dev.toml"
   API_FUNCTION="ada-api-dev"
   SIM_FUNCTION="ada-simulation-dev"
+  VERSION_LABEL="v3.0"
 else
   STACK_NAME="ada-driving-assistant"
   SAM_CONFIG="samconfig.toml"
   API_FUNCTION="ada-api"
   SIM_FUNCTION="ada-simulation"
+  VERSION_LABEL="v2.3"
 fi
 
 echo "==> Environment : $ENV  (stack: $STACK_NAME)"
@@ -143,9 +145,13 @@ echo "==> Preparing static files for S3..."
 PYTHON=$(command -v python || command -v python3 || command -v py)
 
 $PYTHON -c "
+import re
 api_url = '$API_URL'
+version = '$VERSION_LABEL'
 content = open('templates/index.html', encoding='utf-8').read()
 content = content.replace(\"window.ADA_API_BASE || ''\", \"'\" + api_url + \"'\")
+content = re.sub(r'v\d+\.\d+</span></h1>', version + '</span></h1>', content)
+content = re.sub(r'ADA Driving Assistant v\d+\.\d+', 'ADA Driving Assistant ' + version, content)
 open('_deploy_index.html', 'w', encoding='utf-8').write(content)
 "
 
