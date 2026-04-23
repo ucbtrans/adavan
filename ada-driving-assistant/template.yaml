@@ -14,14 +14,14 @@ Parameters:
   Stage:
     Type: String
     Default: prod
-  Env:
+  Suffix:
     Type: String
-    Default: prod
-    AllowedValues: [prod, dev]
-    Description: Deployment environment (prod keeps existing resource names, dev adds -dev suffix)
-
-Conditions:
-  IsProd: !Equals [!Ref Env, prod]
+    Default: ""
+    Description: Name suffix for all resources. Empty for prod, "-dev" for dev.
+  BucketLabel:
+    Type: String
+    Default: v2
+    Description: Label used in web S3 bucket name. "v2" for prod, "dev" for dev.
 
 Globals:
   Function:
@@ -58,7 +58,7 @@ Resources:
   ApiFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !If [IsProd, "ada-api", "ada-api-dev"]
+      FunctionName: !Sub "ada-api${Suffix}"
       CodeUri: .
       Handler: app.handler
       Policies:
@@ -94,7 +94,7 @@ Resources:
   SimulationFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !If [IsProd, "ada-simulation", "ada-simulation-dev"]
+      FunctionName: !Sub "ada-simulation${Suffix}"
       CodeUri: .
       Handler: lambda_function.handler
       Timeout: 300
@@ -108,14 +108,14 @@ Resources:
           Type: Schedule
           Properties:
             Schedule: cron(0 6 * * ? *)
-            Name: !If [IsProd, "ada-daily-simulation", "ada-daily-simulation-dev"]
+            Name: !Sub "ada-daily-simulation${Suffix}"
             Description: Generate daily traffic events for all cities
 
   # ── DynamoDB events table ───────────────────────────────────────────────────
   EventsTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: !If [IsProd, "ada-events", "ada-events-dev"]
+      TableName: !Sub "ada-events${Suffix}"
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
         - { AttributeName: street,   AttributeType: S }
@@ -144,7 +144,7 @@ Resources:
   FleetConfigTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: !If [IsProd, "ada-fleet-config", "ada-fleet-config-dev"]
+      TableName: !Sub "ada-fleet-config${Suffix}"
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
         - { AttributeName: config_key, AttributeType: S }
@@ -155,7 +155,7 @@ Resources:
   SessionsTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: !If [IsProd, "ada-sessions", "ada-sessions-dev"]
+      TableName: !Sub "ada-sessions${Suffix}"
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
         - AttributeName: id
@@ -171,10 +171,7 @@ Resources:
   WebBucketV2:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !If
-        - IsProd
-        - !Sub "ada-driving-assistant-web-v2-${AWS::AccountId}"
-        - !Sub "ada-driving-assistant-web-dev-${AWS::AccountId}"
+      BucketName: !Sub "ada-driving-assistant-web-${BucketLabel}-${AWS::AccountId}"
       WebsiteConfiguration:
         IndexDocument: index.html
       PublicAccessBlockConfiguration:
@@ -221,33 +218,28 @@ Outputs:
     Description: API Gateway endpoint URL
     Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}
     Export:
-      Name: !If [IsProd, "ADAApiUrl", "ADAApiUrl-dev"]
-
-  CloudFrontUrlV1:
-    Description: Existing v1 CloudFront URL (managed outside this stack)
-    Value: https://d1v86oas7j7jis.cloudfront.net
-    Condition: IsProd
+      Name: !Sub "ADAApiUrl${Suffix}"
 
   WebsiteUrlV2:
     Description: S3 static website URL
     Value: !GetAtt WebBucketV2.WebsiteURL
     Export:
-      Name: !If [IsProd, "ADAWebsiteUrlV2", "ADAWebsiteUrlV2-dev"]
+      Name: !Sub "ADAWebsiteUrlV2${Suffix}"
 
   CloudFrontUrlV2:
     Description: HTTPS CloudFront URL
     Value: !Sub https://${CloudFrontDistributionV2.DomainName}
     Export:
-      Name: !If [IsProd, "ADACloudFrontUrlV2", "ADACloudFrontUrlV2-dev"]
+      Name: !Sub "ADACloudFrontUrlV2${Suffix}"
 
   WebBucketNameV2:
     Description: Web S3 bucket name
     Value: !Ref WebBucketV2
     Export:
-      Name: !If [IsProd, "ADAWebBucketV2", "ADAWebBucketV2-dev"]
+      Name: !Sub "ADAWebBucketV2${Suffix}"
 
   EventsTableArn:
     Description: DynamoDB events table ARN
     Value: !GetAtt EventsTable.Arn
     Export:
-      Name: !If [IsProd, "ADAEventsTableArn", "ADAEventsTableArn-dev"]
+      Name: !Sub "ADAEventsTableArn${Suffix}"

@@ -3,7 +3,7 @@
 sessions.json
 
 # Build artifacts
-lambda.zip
+lambda*.zip
 package/
 .aws-build/
 .aws-packaged.yaml
