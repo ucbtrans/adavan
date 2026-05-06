@@ -1,28 +1,29 @@
 """
-AWS Lambda function -- ADA Driving Assistant daily object simulation.
+AWS Lambda function -- ADA Driving Assistant daily simulation + schedule generation.
 
-Schedule: run once a day (EventBridge cron: 0 6 * * ? *)
+Schedule: runs daily at 12:00 UTC (≈ 4-5 am Pacific Time)
 
-Actions (per city):
-  1. Download city_streets.json from S3.
-  2. Compute N events = len(streets) // 3.
-  3. Generate N new events for today and write to DynamoDB.
-  4. (After all cities) garbage-collect events expired > 7 days ago.
+Actions:
+  1. Per city: download city_streets.json from S3, generate traffic events → DynamoDB.
+  2. Generate fleet schedules for today if not already present.
+  3. Garbage-collect stale events (> 7 days past inactive_at).
 
 Environment variables:
   S3_BUCKET     - name of the S3 data bucket (required)
   EVENTS_TABLE  - DynamoDB events table name (default: ada-events)
+  FLEET_TABLE   - DynamoDB fleet config table (default: ada-fleet-config)
 """
 
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 import boto3
 
 from events import put_event, delete_stale_events
 from simulator import generate_events
+import schedule as sched_mod
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -106,6 +107,10 @@ def handler(event: dict, context) -> dict:
         logger.error("Garbage collection failed: %s", exc)
         deleted = 0
 
+    # ── Fleet schedule generation ─────────────────────────────────────────────
+    # Generate today's schedules (PT date = UTC - 7 h) if not already present.
+    sched_result = _generate_fleet_schedules(s3, now)
+
     return {
         "statusCode": 200 if not errors else 207,
         "body": {
@@ -114,7 +119,43 @@ def handler(event: dict, context) -> dict:
             "cities_failed":   len(errors),
             "total_generated": total_generated,
             "stale_deleted":   deleted,
+            "fleet_schedules": sched_result,
             "details":         results,
             "errors":          errors,
         },
     }
+
+
+def _generate_fleet_schedules(s3, now: datetime) -> dict:
+    """Generate van schedules for today's PT date if not already present."""
+    pt_date = (now - timedelta(hours=7)).strftime("%Y-%m-%d")
+    if sched_mod.schedules_exist(pt_date):
+        logger.info("Fleet schedules already exist for %s — skipping", pt_date)
+        return {"skipped": True, "date": pt_date}
+
+    # Load address pool from S3
+    try:
+        key = "addresses_pool.json"
+        tmp = "/tmp/addresses_pool.json"
+        if not os.path.exists(tmp):
+            s3.download_file(os.environ["S3_BUCKET"], key, tmp)
+        with open(tmp) as f:
+            raw_pool = json.load(f)
+        pool = [{"address": p["address"], "lat": p["lat"], "lon": p["lon"]} for p in raw_pool]
+    except Exception as exc:
+        logger.error("Could not load address pool: %s", exc)
+        return {"error": str(exc)}
+
+    generated, errors = [], []
+    for i in range(1, sched_mod.NUM_VANS + 1):
+        v_id = sched_mod.van_id(i)
+        try:
+            s = sched_mod.generate_van_schedule(v_id, pt_date, pool)
+            sched_mod.save_schedule(s)
+            generated.append(v_id)
+            logger.info("Generated schedule for %s on %s", v_id, pt_date)
+        except Exception as exc:
+            logger.error("Schedule generation failed for %s: %s", v_id, exc)
+            errors.append({"van_id": v_id, "error": str(exc)})
+
+    return {"date": pt_date, "generated": generated, "errors": errors}

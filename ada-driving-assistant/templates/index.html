@@ -563,7 +563,7 @@ aside h2 {
 /* ── Fleet layout ───────────────────────────────────────────── */
 .fleet-main { display: flex; flex: 1; overflow: hidden; min-height: 0; }
 .fleet-sidebar {
-  width: 200px;
+  width: 340px;
   flex-shrink: 0;
   background: var(--surface);
   border-right: 1px solid var(--border);
@@ -581,6 +581,91 @@ aside h2 {
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
+/* ── Schedule control bar ── */
+.sched-ctrl-bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 5px;
+  padding: 8px 10px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.sched-ctrl-bar input[type=date] {
+  background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 5px; padding: 3px 6px; font-size: .77rem;
+}
+#fleet-clock {
+  font-size: .82rem; font-variant-numeric: tabular-nums;
+  color: var(--fg); font-weight: 600; min-width: 70px;
+}
+.speed-btn {
+  background: var(--surface2,#2a2a3a); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: 2px 7px; font-size: .76rem; cursor: pointer;
+}
+.speed-btn.active { background: rgba(88,166,255,.25); border-color: #58a6ff; }
+/* ── Van schedule cards ── */
+.van-sched-card { border-bottom: 1px solid var(--border); }
+.van-sched-hdr {
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 10px; cursor: pointer; user-select: none;
+  font-size: .8rem; font-weight: 600;
+}
+.van-sched-hdr:hover { background: var(--surface2, rgba(255,255,255,.04)); }
+.van-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; display: inline-block; }
+.van-status-chip {
+  font-size: .67rem; font-weight: 500; padding: 1px 5px;
+  border-radius: 3px; background: rgba(255,255,255,.08); color: var(--muted); margin-left: auto;
+}
+.van-status-chip.on-ride  { background: rgba(34,197,94,.18);  color: #22c55e; }
+.van-status-chip.deadhead { background: rgba(234,179,8,.15);  color: #eab308; }
+.van-status-chip.returning{ background: rgba(96,165,250,.15); color: #60a5fa; }
+.van-status-chip.paused   { background: rgba(156,163,175,.18); color: #9ca3af; }
+.van-pause-btn {
+  background: none; border: 1px solid var(--border); border-radius: 3px;
+  color: var(--muted); cursor: pointer; font-size: .67rem;
+  padding: 1px 6px; line-height: 1.4; margin-left: 4px; flex-shrink: 0;
+}
+.van-pause-btn:hover { background: rgba(255,255,255,.07); color: var(--fg); }
+.van-pause-btn.restart { border-color: #22c55e; color: #22c55e; }
+.van-pause-btn.restart:hover { background: rgba(34,197,94,.12); }
+.van-delete-btn {
+  background: none; border: 1px solid transparent; border-radius: 3px;
+  color: var(--muted); cursor: pointer; font-size: .7rem;
+  padding: 1px 4px; line-height: 1.4; margin-left: auto; flex-shrink: 0; opacity: .5;
+}
+.van-delete-btn:hover { border-color: #ef4444; color: #ef4444; opacity: 1; }
+.van-add-btn {
+  background: none; border: 1px solid var(--border); border-radius: 4px;
+  color: var(--muted); cursor: pointer; font-size: .72rem;
+  padding: 2px 8px; line-height: 1.4;
+}
+.van-add-btn:hover { border-color: #22c55e; color: #22c55e; background: rgba(34,197,94,.08); }
+.van-sched-expand { font-size: .7rem; color: var(--muted); margin-left: 4px; }
+.van-sched-body { display: none; padding: 0 0 4px; }
+.van-sched-body.open { display: block; }
+.sched-tbl {
+  width: 100%; border-collapse: collapse; font-size: .72rem;
+}
+.sched-tbl th {
+  text-align: left; padding: 4px 5px;
+  font-size: .65rem; font-weight: 600; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+.sched-tbl td { padding: 2px 4px; vertical-align: middle; }
+.sched-tbl tr.active-ride td { background: rgba(88,166,255,.1); }
+.sched-tbl tr.past-ride td { opacity: .45; }
+.sched-tbl input.sched-input {
+  background: transparent; color: var(--fg); border: none;
+  border-bottom: 1px solid transparent; width: 100%;
+  font-size: .72rem; padding: 1px 2px;
+}
+.sched-tbl input.sched-input:focus {
+  outline: none; border-bottom-color: #58a6ff; background: rgba(88,166,255,.07);
+}
+.sched-tbl input[type=time].sched-input { width: 68px; }
+.van-sched-footer {
+  display: flex; gap: 5px; padding: 4px 8px;
+  justify-content: flex-end; border-top: 1px solid var(--border);
+}
+.btn-sched-save { font-size: .72rem; padding: 2px 9px; }
 .fleet-map-wrap { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 #fleet-map { flex: 1; min-height: 0; }
 #fleet-sim-controls {
@@ -922,30 +1007,32 @@ aside h2 {
 <div id="tab-fleet" class="tab-pane">
   <div class="fleet-main">
 
-    <!-- Left: van list -->
+    <!-- Left: schedule sidebar -->
     <div class="fleet-sidebar">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px 4px;">
         <h2 style="margin:0;">🚐 Fleet</h2>
         <div style="display:flex;gap:4px;">
+          <button class="van-add-btn" onclick="addVan()" title="Add a new van">＋ Van</button>
           <button class="btn btn-ghost btn-icon" onclick="openHelp()" title="Help" style="font-size:1.0rem;padding:3px 8px;">❓</button>
           <button class="btn btn-ghost" onclick="openFleetLog()" style="font-size:.78rem;padding:3px 10px;" title="Open event log">📋 Log</button>
         </div>
       </div>
-      <div id="van-list"></div>
+      <div class="sched-ctrl-bar">
+        <input type="date" id="sched-date" onchange="onSchedDateChange()" style="flex:1;min-width:0;">
+        <button class="btn btn-ghost" onclick="onGenerateSchedules()" style="font-size:.73rem;padding:2px 8px;" title="Generate schedule for this date">⚡</button>
+        <span id="fleet-clock"></span>
+        <button class="speed-btn active" id="btn-speed-1x" onclick="setSimSpeed(1)">1×</button>
+        <button class="speed-btn" id="btn-speed-10x" onclick="setSimSpeed(10)">10×</button>
+        <button class="btn btn-ghost" onclick="resetSimTime()" style="font-size:.77rem;padding:2px 5px;" title="Reset to current real time">↺</button>
+      </div>
+      <div id="van-sched-list"></div>
     </div>
 
     <!-- Middle: map + sim controls -->
     <div class="fleet-map-wrap">
       <div id="fleet-map"></div>
       <div id="fleet-sim-controls">
-        <button class="sim-btn" id="fleet-btn-bwd10" onclick="fleetSetMode('bwd10')" title="Fast backward 10×">⏪</button>
-        <button class="sim-btn" id="fleet-btn-bwd"   onclick="fleetSetMode('bwd')"   title="Backward">◀</button>
-        <button class="sim-btn" id="fleet-btn-fwd"   onclick="fleetSetMode('fwd')"   title="Forward">▶</button>
-        <button class="sim-btn" id="fleet-btn-fwd10" onclick="fleetSetMode('fwd10')" title="Fast forward 10×">⏩</button>
-        <button class="sim-btn" id="fleet-btn-reset" onclick="fleetReset()" title="Reset all vans to origin">⏹</button>
-        <span id="fleet-sim-speed" style="font-size:.78rem;color:var(--muted);margin-left:4px;"></span>
-        <span id="fleet-sim-time"  style="font-size:.78rem;color:var(--muted);margin-left:8px;"></span>
-        <span id="fleet-event-stats" style="font-size:.75rem;color:var(--muted);margin-left:12px;letter-spacing:.01em;">
+        <span id="fleet-event-stats" style="font-size:.75rem;color:var(--muted);letter-spacing:.01em;">
           events total <b id="stat-total">0</b> &nbsp;|&nbsp;
           checked <b id="stat-checked">0</b> &nbsp;|&nbsp;
           cleared <b id="stat-cleared" style="color:#22c55e;">0</b> &nbsp;|&nbsp;
@@ -2060,7 +2147,7 @@ function bearingLabel(b) {
   return DIRS[Math.round(b/45)%8] + ' (' + b + '°)';
 }
 function fmtTime(iso) {
-  return new Date(iso).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+  return new Date(iso).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',hour12:false});
 }
 function fmtDate(iso) {
   const d = new Date(iso);
@@ -3004,32 +3091,35 @@ function startQuestionSpeech() {
 const FLEET_HELP_TITLE = '❓ Fleet Tab — Help';
 const FLEET_HELP_BODY = `
   <div class="hc-section">
-    <div class="hc-label">🚐 Van Management</div>
+    <div class="hc-label">🚐 Van Schedules</div>
     <ul>
-      <li>Click any van in the sidebar or on the map to view its details and destination cycle</li>
-      <li>Click <strong>Edit</strong> in the van detail panel to change a destination address</li>
-      <li>Click <strong>Save</strong> to update the route — saved permanently to the cloud</li>
-      <li><strong>Hard Reset</strong> keeps all routes but moves all vans back to their start positions</li>
+      <li>Each van follows a 10-ride daily schedule generated before 5 AM PT</li>
+      <li>Click ▶ next to a van in the sidebar to expand its schedule table</li>
+      <li>Edit times or addresses inline, then click <strong>Save</strong> to persist changes</li>
+      <li>Click a van marker on the map to expand its schedule card in the sidebar</li>
+      <li>Click <strong>⚡</strong> to generate today's schedule if none exists</li>
     </ul>
   </div>
   <div class="hc-section">
-    <div class="hc-label">▶ Simulation Controls</div>
+    <div class="hc-label">🕐 Clock &amp; Speed</div>
     <ul>
-      <li><strong>▶</strong> forward &nbsp;|&nbsp; <strong>◀</strong> reverse &nbsp;|&nbsp; <strong>⏩ / ⏪</strong> 10× speed &nbsp;|&nbsp; <strong>⏹</strong> reset all vans</li>
-      <li>Vans cycle through their destinations continuously</li>
-      <li>Speed is 25 mph on city streets, 65 mph on freeways</li>
+      <li>Van positions are computed from the current simulated time (shown in the sidebar)</li>
+      <li><strong>1×</strong> — real time &nbsp;|&nbsp; <strong>10×</strong> — 10× fast for testing</li>
+      <li><strong>↺</strong> — reset clock back to current real time</li>
+      <li>All users see the same schedule; positions are computed locally in each browser</li>
     </ul>
   </div>
   <div class="hc-section">
     <div class="hc-label">💬 Chat Commands</div>
     <ul>
-      <li><strong>start</strong> / <strong>stop</strong> / <strong>restart</strong> — control all vans</li>
-      <li><strong>start 10x</strong> / <strong>restart 10x</strong> — run at 10× speed</li>
-      <li><strong>start 3</strong> / <strong>stop 5</strong> / <strong>restart 7</strong> — control a single van by number</li>
+      <li><strong>1x</strong> / <strong>10x</strong> — set simulation speed (real time or 10× fast)</li>
+      <li><strong>reset</strong> — reset clock to current real time</li>
+      <li><strong>generate</strong> — generate today's van schedules</li>
+      <li><strong>van 3</strong> / <strong>status 5</strong> — show a van's current phase and ride</li>
       <li><strong>light map</strong> / <strong>dark map</strong> (or <strong>light mode</strong> / <strong>dark mode</strong>) — switch map theme</li>
       <li><strong>show routes</strong> / <strong>clear routes</strong> — toggle route polylines on the map</li>
       <li><strong>show markers</strong> / <strong>clear markers</strong> — toggle event markers on the map</li>
-      <li><strong>help</strong> — show this guide in the chat log</li>
+      <li><strong>help</strong> — show this guide</li>
     </ul>
   </div>
   <div class="hc-section">
@@ -3546,136 +3636,106 @@ function _updateFleetStats(patch) {
   if (el('stat-cleared')) el('stat-cleared').textContent = _fleetStats.cleared;
   if (el('stat-created')) el('stat-created').textContent = _fleetStats.created;
 }
-let fleetMode         = 'stopped';
-let fleetInterval     = null;
-let fleetTimeSec      = 0;
-let fleetModalVanId   = null;
-let fleetInitialized  = false;
-let _fleetTickBusy    = false;
+let fleetInterval    = null;
+let fleetInitialized = false;
+let _fleetTickBusy   = false;
+let fleetModalVanId  = null;   // kept for legacy van modal
+let _uiTick          = 0;      // counter for throttled UI updates
+
+// ── Sim time model ──────────────────────────────────────────────
+let _simEpoch = null;  // sim epoch ms at _simBase wall time
+let _simBase  = null;  // wall clock ms when epoch was set
+let _simSpeed = 1;     // 1 or 10
+
+function simNowMs() {
+  if (_simBase === null) return Date.now();
+  return _simEpoch + (Date.now() - _simBase) * _simSpeed;
+}
+
+function simMinPT(ms) {
+  const t   = ms !== undefined ? ms : simNowMs();
+  const ptD = new Date(t - 7 * 3_600_000);
+  return ptD.getUTCHours() * 60 + ptD.getUTCMinutes() + ptD.getUTCSeconds() / 60;
+}
+
+function simDateStrPT(ms) {
+  const ptD = new Date((ms !== undefined ? ms : simNowMs()) - 7 * 3_600_000);
+  return `${ptD.getUTCFullYear()}-${String(ptD.getUTCMonth()+1).padStart(2,'0')}-${String(ptD.getUTCDate()).padStart(2,'0')}`;
+}
+
+function setSimSpeed(s) {
+  const cur = simNowMs();
+  _simEpoch = cur;
+  _simBase  = Date.now();
+  _simSpeed = s;
+  document.getElementById('btn-speed-1x')?.classList.toggle('active',  s === 1);
+  document.getElementById('btn-speed-10x')?.classList.toggle('active', s === 10);
+}
+
+function resetSimTime() {
+  _simEpoch = Date.now();
+  _simBase  = Date.now();
+  _simSpeed = 1;
+  document.getElementById('btn-speed-1x')?.classList.add('active');
+  document.getElementById('btn-speed-10x')?.classList.remove('active');
+}
+
+// ── Schedule state ────────────────────────────────────────────────
+let _scheduleData    = {};   // "VAN_01" → schedule object
+const _routeCache    = {};   // "VAN_01:dh_1" → {coords, streets}
+const _routeFetching = new Set();
+const FLEET_BASE_LAT = 37.8897;
+const FLEET_BASE_LON = -122.3024;
 
 let vans = [];   // array of van state objects
 
-// ── Van icon (canvas-colorized PNG) ───────────────────────────
-
-let _vanBaseImage  = null;   // loaded HTMLImageElement
-let _vanColorCache = {};     // color → data-URL
-
-function _loadVanImage() {
-  if (_vanBaseImage) return Promise.resolve(_vanBaseImage);
-  return new Promise(resolve => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload  = () => { _vanBaseImage = img; resolve(img); };
-    img.onerror = () => resolve(null);
-    img.src = '/van_top.png';
-  });
-}
-
-function _colorizeVan(img, color) {
-  if (_vanColorCache[color]) return _vanColorCache[color];
-  const W = 22, H = 32;
-  const canvas = document.createElement('canvas');
-  canvas.width = W; canvas.height = H;
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(img, 0, 0, W, H);
-
-  const id = ctx.getImageData(0, 0, W, H);
-  const d  = id.data;
-
-  // ── Step 1: BFS flood fill from corners to remove background ──
-  // Sample background color from the top-left corner pixel
-  const bgR = d[0], bgG = d[1], bgB = d[2];
-
-  function cdist(i) {
-    return Math.max(Math.abs(d[i]-bgR), Math.abs(d[i+1]-bgG), Math.abs(d[i+2]-bgB));
-  }
-
-  const BG_TOL = 28;  // max channel distance from corner color → background
-  const visited = new Uint8Array(W * H);
-  const queue = [];
-
-  // Seed from all 4 corners
-  for (const [py, px] of [[0,0],[0,W-1],[H-1,0],[H-1,W-1]]) {
-    const idx = py * W + px;
-    if (!visited[idx] && cdist(idx * 4) < BG_TOL) {
-      visited[idx] = 1;
-      queue.push(idx);
-    }
-  }
-
-  let qi = 0;
-  while (qi < queue.length) {
-    const idx = queue[qi++];
-    d[idx * 4 + 3] = 0;  // make transparent
-    const py = Math.floor(idx / W), px = idx % W;
-    for (const [dy, dx] of [[-1,0],[1,0],[0,-1],[0,1]]) {
-      const ny = py + dy, nx = px + dx;
-      if (ny < 0 || ny >= H || nx < 0 || nx >= W) continue;
-      const ni = ny * W + nx;
-      if (!visited[ni] && cdist(ni * 4) < BG_TOL) {
-        visited[ni] = 1;
-        queue.push(ni);
-      }
-    }
-  }
-
-  // ── Step 2: Colorize remaining (car) pixels ──
-  const n  = parseInt(color.replace('#', ''), 16);
-  const cr = (n >> 16) & 255, cg = (n >> 8) & 255, cb = n & 255;
-
-  for (let i = 0; i < d.length; i += 4) {
-    if (d[i + 3] < 20) continue;  // skip transparent (removed background)
-    const r = d[i], g = d[i+1], b = d[i+2];
-    // Preserve saturated pixels (red tail lights)
-    const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
-    if (mx > 0 && (mx - mn) / mx > 0.25) continue;
-    // Multiply-blend car body with van color
-    d[i]   = Math.round(r * cr / 255);
-    d[i+1] = Math.round(g * cg / 255);
-    d[i+2] = Math.round(b * cb / 255);
-  }
-  ctx.putImageData(id, 0, 0);
-
-  // ── Step 3: Draw tail lights (rear = top) and headlights (front = bottom) ──
-  // White headlights (front = top of icon)
-  ctx.fillStyle = 'rgba(255, 255, 200, 0.95)';
-  ctx.beginPath();
-  ctx.ellipse(8, 7, 2.5, 1.5, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.ellipse(W - 8, 7, 2.5, 1.5, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Red tail lights (rear = bottom of icon)
-  ctx.fillStyle = '#e81010';
-  ctx.fillRect(6, H - 9, 4, 3);        // left tail light
-  ctx.fillRect(W - 10, H - 9, 4, 3);   // right tail light
-
-  const url = canvas.toDataURL();
-  _vanColorCache[color] = url;
-  return url;
-}
+// ── Van icon (pre-colored PNGs, generated per van index) ──────
+// van_1.png … van_10.png are pre-colorized server-side (no canvas needed).
 
 function makeVanIcon(num, color, bearing) {
-  const rot = bearing || 0;
-  const src = _vanBaseImage ? _colorizeVan(_vanBaseImage, color) : '/van_top.png';
-  const isLight = fleetMapTheme === 'light';
+  const rot    = bearing || 0;
+  const src    = `/van_${((num - 1) % 10) + 1}.png`;
+  const isLight   = fleetMapTheme === 'light';
   const numColor  = isLight ? '#111' : '#fff';
   const numShadow = isLight
     ? '0 0 3px rgba(255,255,255,0.95),0 0 5px rgba(255,255,255,0.8)'
     : '0 0 3px rgba(0,0,0,0.95),0 0 6px rgba(0,0,0,0.7)';
   return L.divIcon({
     className: '',
-    html: `<div style="transform:rotate(${rot}deg);transform-origin:11px 16px;width:22px;height:32px;position:relative;background:transparent;">
-      <img src="${src}" style="width:22px;height:32px;display:block;"/>
+    html: `<div class="van-inner" style="transform:rotate(${rot}deg);transform-origin:8px 16px;width:16px;height:32px;position:relative;">
+      <div class="van-hl" style="display:none;position:absolute;bottom:100%;left:0;margin-bottom:-2px;
+                  width:7px;height:16px;pointer-events:none;
+                  background:radial-gradient(ellipse at 50% 85%,rgba(255,255,180,0.7) 0%,rgba(255,255,180,0) 100%);"></div>
+      <div class="van-hl" style="display:none;position:absolute;bottom:100%;right:0;margin-bottom:-2px;
+                  width:7px;height:16px;pointer-events:none;
+                  background:radial-gradient(ellipse at 50% 85%,rgba(255,255,180,0.7) 0%,rgba(255,255,180,0) 100%);"></div>
+      <img src="${src}" style="width:16px;height:32px;display:block;"/>
       <span style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
-                   font-size:11px;font-weight:700;color:${numColor};line-height:1;
+                   font-size:10px;font-weight:700;color:${numColor};line-height:1;
                    text-shadow:${numShadow};
                    pointer-events:none;">${num}</span>
     </div>`,
-    iconSize:   [22, 32],
-    iconAnchor: [11, 16],
+    iconSize:   [16, 32],
+    iconAnchor: [8, 16],
   });
+}
+
+function setVanLights(van, phase) {
+  const el = van.marker?.getElement();
+  if (!el) return;
+  const isLight = fleetMapTheme === 'light';
+  const atBase  = phase === 'base';
+  const inner   = el.querySelector('.van-inner');
+  const img     = el.querySelector('img');
+  if (atBase) {
+    if (inner) inner.style.opacity = '0.15';
+    if (img)   img.style.filter   = '';
+    el.querySelectorAll('.van-hl').forEach(e => e.style.display = 'none');
+  } else {
+    if (inner) inner.style.opacity = '1';
+    if (img)   img.style.filter   = '';
+    el.querySelectorAll('.van-hl').forEach(e => e.style.display = isLight ? 'none' : 'block');
+  }
 }
 
 // ── Van route polylines ────────────────────────────────────────
@@ -3769,29 +3829,671 @@ function vanStreetMph(van) {
 
 // ── Initialization ─────────────────────────────────────────────
 
-function initFleetVans() {
-  vans = Array.from({ length: NUM_VANS }, (_, i) => ({
-    id:             i + 1,
-    color:          VAN_COLORS[i],
-    status:         'stopped',
-    destinations:   [],       // [{address, lat, lon}]
-    currentDestIdx: 1,        // heading toward this destination index
-    routeCoords:    null,     // [[lon,lat],...]
-    routeStreets:   [],
-    distM:          0,
-    lat:            null,
-    lon:            null,
+function _makeVanObj(n) {
+  return {
+    id:             n,
+    color:          VAN_COLORS[(n - 1) % VAN_COLORS.length],
+    lat:            FLEET_BASE_LAT,
+    lon:            FLEET_BASE_LON,
     bearing:        0,
     marker:         null,
-    fetchingRoute:  false,
-    paused:         false,
     polyBehind:     null,
     polyAhead:      null,
-    lastCheckDistM: 0,
+    routeCoords:    null,
+    routeStreets:   [],
+    distM:          0,
+    currentLegKey:  'base',
+    currentPhase:   'base',
     lastCheckLat:   null,
     lastCheckLon:   null,
     lastStreet:     '',
-  }));
+    _distSinceCheck: 0,
+    paused:         false,
+    pausedLat:      null,
+    pausedLon:      null,
+    pausedLegKey:   '',
+    pausedSimMin:   0,
+  };
+}
+
+function initFleetVans(vanNums) {
+  vans = (vanNums || Array.from({length: NUM_VANS}, (_, i) => i + 1)).map(_makeVanObj);
+}
+
+// ── Schedule helpers ──────────────────────────────────────────────
+
+function vanScheduleId(van) {
+  return `VAN_${String(van.id).padStart(2, '0')}`;
+}
+
+async function loadSchedules(dateStr) {
+  const API_BASE = window.ADA_API_BASE || '';
+  try {
+    const resp = await fetch(`${API_BASE}/api/fleet/schedule?date=${encodeURIComponent(dateStr)}`);
+    if (resp.ok) {
+      const data = await resp.json();
+      _scheduleData = {};
+      for (const s of (data.schedules || [])) _scheduleData[s.van_id] = s;
+      _flog('ok', `Loaded ${Object.keys(_scheduleData).length} schedule(s) for ${dateStr}`);
+      Object.keys(_routeCache).forEach(k => delete _routeCache[k]);
+      vans.forEach(v => { v.currentLegKey = ''; v.routeCoords = null; v.routeStreets = []; v.distM = 0; });
+    } else {
+      _flog('warn', `GET /api/fleet/schedule → HTTP ${resp.status}`);
+    }
+  } catch (err) {
+    _flog('err', `loadSchedules error: ${err}`);
+  } finally {
+    renderScheduleSidebar();
+  }
+  return Object.keys(_scheduleData).length > 0;
+}
+
+async function onGenerateSchedules() {
+  const dateStr = document.getElementById('sched-date')?.value;
+  if (!dateStr) { appendFleetMessage('system', 'Select a date first.'); return; }
+  appendFleetMessage('system', `Generating schedules for ${dateStr}…`);
+  const API_BASE = window.ADA_API_BASE || '';
+  try {
+    const resp = await fetch(`${API_BASE}/api/fleet/schedule/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date: dateStr }),
+    });
+    if (!resp.ok) { appendFleetMessage('system', `Generate failed: HTTP ${resp.status}`); return; }
+    appendFleetMessage('system', 'Schedules generated. Loading…');
+    await loadSchedules(dateStr);
+  } catch (err) {
+    appendFleetMessage('system', `Generate error: ${err.message}`);
+  }
+}
+
+async function onSchedDateChange() {
+  const dateStr = document.getElementById('sched-date')?.value;
+  if (dateStr) await loadSchedules(dateStr);
+}
+
+// ── Van position from schedule ─────────────────────────────────────
+
+function getVanLegInfo(sched, timePT) {
+  const rides = sched.rides;
+  if (!rides || !rides.length) return { phase: 'base', legKey: 'base', frac: 0 };
+  if (timePT < rides[0].depart_min) return { phase: 'base', legKey: 'base', frac: 0 };
+
+  for (let i = 0; i < rides.length; i++) {
+    const r = rides[i];
+    if (timePT >= r.depart_min && timePT < r.pickup_min) {
+      const dur = r.pickup_min - r.depart_min;
+      return {
+        phase: 'deadhead', legKey: `dh_${i+1}`, rideIdx: i,
+        frac:  dur > 0 ? Math.min(1, (timePT - r.depart_min) / dur) : 0,
+        fromLat: r.dh_from_lat, fromLon: r.dh_from_lon,
+        toLat:   r.from_lat,    toLon:   r.from_lon,
+      };
+    }
+    if (timePT >= r.pickup_min && timePT < r.dropoff_min) {
+      const dur = r.dropoff_min - r.pickup_min;
+      return {
+        phase: 'riding', legKey: `ride_${i+1}`, rideIdx: i,
+        frac:  dur > 0 ? Math.min(1, (timePT - r.pickup_min) / dur) : 0,
+        fromLat: r.from_lat, fromLon: r.from_lon,
+        toLat:   r.to_lat,   toLon:   r.to_lon,
+      };
+    }
+  }
+
+  const last = rides[rides.length - 1];
+  if (timePT >= last.dropoff_min && sched.rtb_sec) {
+    const rtbEnd = last.dropoff_min + sched.rtb_sec / 60;
+    if (timePT < rtbEnd) {
+      const dur = sched.rtb_sec / 60;
+      return {
+        phase: 'returning', legKey: 'rtb', rideIdx: null,
+        frac:  Math.min(1, (timePT - last.dropoff_min) / dur),
+        fromLat: sched.rtb_from_lat, fromLon: sched.rtb_from_lon,
+        toLat:   FLEET_BASE_LAT,     toLon:   FLEET_BASE_LON,
+      };
+    }
+  }
+  return { phase: 'base', legKey: 'base', frac: 0 };
+}
+
+async function ensureRouteForLeg(cacheKey, fromLat, fromLon, toLat, toLon) {
+  if (_routeCache[cacheKey]) return _routeCache[cacheKey];
+  if (_routeFetching.has(cacheKey)) return null;
+  _routeFetching.add(cacheKey);
+  try {
+    const r = await fetchOsrmRoute(fromLat, fromLon, toLat, toLon);
+    if (r) _routeCache[cacheKey] = r;
+    return r || null;
+  } catch { return null; } finally { _routeFetching.delete(cacheKey); }
+}
+
+function coordsTotalM(coords) {
+  if (!coords || coords.length < 2) return 0;
+  let total = 0;
+  for (let i = 0; i < coords.length - 1; i++) {
+    const [lo1, la1] = coords[i], [lo2, la2] = coords[i+1];
+    total += haversineM(la1, lo1, la2, lo2);
+  }
+  return total;
+}
+
+function posAtDistM(coords, d) {
+  if (!coords || coords.length < 2) return null;
+  let walked = 0;
+  for (let i = 0; i < coords.length - 1; i++) {
+    const [lo1, la1] = coords[i], [lo2, la2] = coords[i+1];
+    const seg = haversineM(la1, lo1, la2, lo2);
+    if (walked + seg >= d) {
+      const t   = seg > 0 ? Math.min(1, (d - walked) / seg) : 0;
+      const lat = la1 + t * (la2 - la1);
+      const lon = lo1 + t * (lo2 - lo1);
+      const bearing = Math.atan2(lo2 - lo1, la2 - la1) * 180 / Math.PI;
+      return { lat, lon, bearing };
+    }
+    walked += seg;
+  }
+  const [lo, la] = coords[coords.length - 1];
+  return { lat: la, lon: lo, bearing: 0 };
+}
+
+// ── Schedule sidebar rendering ─────────────────────────────────────
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function renderScheduleSidebar() {
+  const el = document.getElementById('van-sched-list');
+  if (!el) return;
+  el.innerHTML = vans.map(van => _renderVanCard(van)).join('');
+}
+
+function _renderVanCard(van) {
+  const schedId = vanScheduleId(van);
+  const sched   = _scheduleData[schedId];
+  const phase   = van.currentPhase || 'base';
+  const chipCls = phase === 'riding' ? 'on-ride' : phase === 'deadhead' ? 'deadhead' : phase === 'returning' ? 'returning' : phase === 'paused' ? 'paused' : '';
+  const chipTxt = _vanPhaseLabel(van);
+
+  if (!sched) {
+    return `<div class="van-sched-card" id="van-card-${van.id}">
+      <div class="van-sched-hdr" onclick="toggleVanCard(${van.id})">
+        <span class="van-dot" style="background:${van.color}"></span>
+        <span>Van ${van.id}</span>
+        <span class="van-status-chip" id="van-chip-${van.id}">No schedule</span>
+        <button class="van-delete-btn" onclick="event.stopPropagation();deleteVan(${van.id})" title="Delete van">🗑</button>
+        <span class="van-sched-expand" id="van-expand-${van.id}">▶</span>
+      </div>
+      <div class="van-sched-body" id="van-body-${van.id}">
+        <div class="van-sched-footer">
+          <button class="btn btn-ghost btn-sched-save" onclick="triggerVanImport(${van.id})">↑ Import CSV</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  const timePT = simMinPT();
+  const rows = sched.rides.map((r, i) => {
+    const isActive = phase === 'riding' && van.currentLegKey === `ride_${i+1}`;
+    const isPast   = timePT > r.dropoff_min;
+    return `<tr class="${isActive ? 'active-ride' : isPast ? 'past-ride' : ''}" id="van-row-${van.id}-${i}">
+      <td style="color:var(--muted);text-align:center;width:18px;">${r.seq}</td>
+      <td><input class="sched-input" type="text" value="${escHtml(r.start_time||'')}"
+           placeholder="HH:MM" pattern="\\d{1,2}:\\d{2}"
+           onchange="onSchedTimeEdit(${van.id},${i},this.value)"></td>
+      <td><input class="sched-input" type="text" value="${escHtml(r.from_address||'')}"
+           placeholder="From…" onchange="onSchedAddrEdit(${van.id},${i},'from',this.value)"></td>
+      <td><input class="sched-input" type="text" value="${escHtml(r.to_address||'')}"
+           placeholder="To…" onchange="onSchedAddrEdit(${van.id},${i},'to',this.value)"></td>
+    </tr>`;
+  }).join('');
+
+  const pauseBtn = van.paused
+    ? `<button class="van-pause-btn restart" onclick="event.stopPropagation();restartVan(${van.id})" title="Resume van">▶ Restart</button>`
+    : `<button class="van-pause-btn"         onclick="event.stopPropagation();pauseVan(${van.id})"   title="Pause van">⏸ Pause</button>`;
+
+  return `<div class="van-sched-card" id="van-card-${van.id}">
+    <div class="van-sched-hdr" onclick="toggleVanCard(${van.id})">
+      <span class="van-dot" style="background:${van.color}"></span>
+      <span>Van ${van.id}</span>
+      <span class="van-status-chip ${chipCls}" id="van-chip-${van.id}">${chipTxt}</span>
+      ${pauseBtn}
+      <button class="van-delete-btn" onclick="event.stopPropagation();deleteVan(${van.id})" title="Delete van">🗑</button>
+      <span class="van-sched-expand" id="van-expand-${van.id}">▶</span>
+    </div>
+    <div class="van-sched-body" id="van-body-${van.id}">
+      <table class="sched-tbl">
+        <thead><tr><th>#</th><th>Time</th><th>From</th><th>To</th></tr></thead>
+        <tbody id="van-tbody-${van.id}">${rows}</tbody>
+      </table>
+      <div class="van-sched-footer">
+        <button class="btn btn-ghost btn-sched-save" onclick="saveVanSchedule(${van.id})">Save</button>
+        <button class="btn btn-ghost btn-sched-save" onclick="exportVanCsv(${van.id})" title="Export schedule as CSV">↓ CSV</button>
+        <button class="btn btn-ghost btn-sched-save" onclick="triggerVanImport(${van.id})" title="Import schedule from CSV">↑ Import</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function _vanPhaseLabel(van) {
+  switch (van.currentPhase) {
+    case 'riding':    return `Ride ${(van.currentLegKey||'').replace('ride_','')}`;
+    case 'deadhead':  return 'Deadhead';
+    case 'returning': return 'Returning';
+    case 'paused':    return 'Paused';
+    default:          return 'At Base';
+  }
+}
+
+function toggleVanCard(vanId) {
+  const body   = document.getElementById(`van-body-${vanId}`);
+  const expand = document.getElementById(`van-expand-${vanId}`);
+  if (!body) return;
+  const isOpen = body.classList.toggle('open');
+  if (expand) expand.textContent = isOpen ? '▼' : '▶';
+}
+
+function _updateVanStatusChips() {
+  const timePT = simMinPT();
+  for (const van of vans) {
+    const chip = document.getElementById(`van-chip-${van.id}`);
+    if (!chip) continue;
+    const phase  = van.currentPhase || 'base';
+    chip.textContent = _vanPhaseLabel(van);
+    chip.className   = `van-status-chip${phase==='riding'?' on-ride':phase==='deadhead'?' deadhead':phase==='returning'?' returning':phase==='paused'?' paused':''}`;
+
+    const schedId = vanScheduleId(van);
+    const sched   = _scheduleData[schedId];
+    if (!sched) continue;
+    sched.rides.forEach((r, i) => {
+      const tr = document.getElementById(`van-row-${van.id}-${i}`);
+      if (!tr) return;
+      const isActive = phase === 'riding' && van.currentLegKey === `ride_${i+1}`;
+      const isPast   = timePT > r.dropoff_min;
+      tr.className   = isActive ? 'active-ride' : isPast ? 'past-ride' : '';
+    });
+  }
+}
+
+function onSchedTimeEdit(vanId, rideIdx, value) {
+  const sched = _scheduleData[`VAN_${String(vanId).padStart(2,'0')}`];
+  if (sched?.rides[rideIdx]) sched.rides[rideIdx].start_time = value;
+}
+
+function onSchedAddrEdit(vanId, rideIdx, field, value) {
+  const sched = _scheduleData[`VAN_${String(vanId).padStart(2,'0')}`];
+  if (!sched?.rides[rideIdx]) return;
+  if (field === 'from') sched.rides[rideIdx].from_address = value;
+  else                  sched.rides[rideIdx].to_address   = value;
+}
+
+async function saveVanSchedule(vanId) {
+  const schedId = `VAN_${String(vanId).padStart(2,'0')}`;
+  const sched   = _scheduleData[schedId];
+  if (!sched) { appendFleetMessage('system', `No schedule loaded for Van ${vanId}`); return; }
+  appendFleetMessage('system', `Saving Van ${vanId} schedule…`);
+  const API_BASE = window.ADA_API_BASE || '';
+  try {
+    const resp = await fetch(`${API_BASE}/api/fleet/schedule/${schedId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(sched),
+    });
+    if (!resp.ok) { appendFleetMessage('system', `Save failed: HTTP ${resp.status}`); return; }
+    const data = await resp.json();
+    if (data.schedule) _scheduleData[schedId] = data.schedule;
+    Object.keys(_routeCache).filter(k => k.startsWith(schedId+':')).forEach(k => delete _routeCache[k]);
+    appendFleetMessage('system', `Van ${vanId} schedule saved.`);
+    renderScheduleSidebar();
+  } catch (err) {
+    appendFleetMessage('system', `Save error: ${err.message}`);
+  }
+}
+
+// ── Add / Delete Van ────────────────────────────────────────────────────────
+
+async function _fetchActiveVanNums() {
+  const API_BASE = window.ADA_API_BASE || '';
+  try {
+    const resp = await fetch(`${API_BASE}/api/fleet/vans`);
+    if (resp.ok) {
+      const data = await resp.json();
+      return Array.isArray(data.vans) && data.vans.length ? data.vans : null;
+    }
+  } catch (err) {
+    _flog('err', `_fetchActiveVanNums: ${err}`);
+  }
+  return null;
+}
+
+async function addVan() {
+  const API_BASE = window.ADA_API_BASE || '';
+  const dateStr  = document.getElementById('sched-date')?.value || simDateStrPT();
+  appendFleetMessage('system', 'Adding new van…');
+  try {
+    const resp = await fetch(`${API_BASE}/api/fleet/van`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({date: dateStr}),
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.ok) {
+      appendFleetMessage('system', `Add van failed: ${data.error || resp.status}`);
+      return;
+    }
+
+    const van = _makeVanObj(data.van_num);
+    van.lat = data.start_lat;
+    van.lon = data.start_lon;
+    vans.push(van);
+
+    if (data.schedule) _scheduleData[data.van_id] = data.schedule;
+
+    // Position at start of next applicable ride
+    if (data.next_ride_seq != null) {
+      const sched = _scheduleData[data.van_id];
+      const ride  = sched?.rides.find(r => r.seq === data.next_ride_seq);
+      if (ride) {
+        van.currentLegKey = `ride_${ride.seq}`;
+        van.currentPhase  = 'riding';
+        // Eagerly pre-fetch route for this ride
+        ensureRouteForLeg(`${data.van_id}:ride_${ride.seq}`, ride.from_lat, ride.from_lon, ride.to_lat, ride.to_lon).catch(() => {});
+      }
+    }
+
+    updateVanMarker(van);
+    setVanLights(van, van.currentPhase);
+    renderScheduleSidebar();
+    appendFleetMessage('system', data.message || `${data.van_id} added.`);
+  } catch (err) {
+    appendFleetMessage('system', `Add van error: ${err.message}`);
+  }
+}
+
+async function deleteVan(vanId) {
+  if (!confirm(`Delete Van ${vanId}? This removes it from today's schedule.`)) return;
+  const API_BASE = window.ADA_API_BASE || '';
+  const dateStr  = document.getElementById('sched-date')?.value || simDateStrPT();
+  const schedId  = `VAN_${String(vanId).padStart(2, '0')}`;
+  try {
+    const resp = await fetch(`${API_BASE}/api/fleet/van/${schedId}?date=${encodeURIComponent(dateStr)}`, {
+      method: 'DELETE',
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.ok) {
+      appendFleetMessage('system', `Delete van failed: ${data.error || resp.status}`);
+      return;
+    }
+  } catch (err) {
+    appendFleetMessage('system', `Delete van error: ${err.message}`);
+    return;
+  }
+
+  // Remove marker and polys from map
+  const van = vans.find(v => v.id === vanId);
+  if (van) {
+    if (van.marker)     { fleetMap.removeLayer(van.marker);     van.marker     = null; }
+    if (van.polyBehind) { fleetMap.removeLayer(van.polyBehind); van.polyBehind = null; }
+    if (van.polyAhead)  { fleetMap.removeLayer(van.polyAhead);  van.polyAhead  = null; }
+  }
+
+  // Remove from vans array and schedule data
+  vans = vans.filter(v => v.id !== vanId);
+  delete _scheduleData[schedId];
+  Object.keys(_routeCache).filter(k => k.startsWith(schedId + ':')).forEach(k => delete _routeCache[k]);
+
+  renderScheduleSidebar();
+  appendFleetMessage('system', `Van ${vanId} deleted.`);
+}
+
+// ── Pause / Restart ─────────────────────────────────────────────────────────
+
+function pauseVan(vanId) {
+  const van = vans.find(v => v.id === vanId);
+  if (!van || van.paused) return;
+  van.paused       = true;
+  van.pausedLat    = van.lat;
+  van.pausedLon    = van.lon;
+  van.pausedLegKey = van.currentLegKey;
+  van.pausedSimMin = simMinPT();
+  renderScheduleSidebar();
+}
+
+async function restartVan(vanId) {
+  const van = vans.find(v => v.id === vanId);
+  if (!van || !van.paused) return;
+  const schedId  = vanScheduleId(van);
+  const origSched = _scheduleData[schedId];
+  if (origSched) {
+    _scheduleData[schedId] = _computeRestartSchedule(van, origSched, simMinPT());
+  }
+  van.paused       = false;
+  van.currentLegKey = '';
+  van.routeCoords  = null;
+  van.routeStreets = [];
+  van.distM        = 0;
+  Object.keys(_routeCache).filter(k => k.startsWith(schedId+':')).forEach(k => delete _routeCache[k]);
+  renderScheduleSidebar();
+}
+
+function _computeRestartSchedule(van, origSched, resumeMin) {
+  const M_PER_MIN = 533.4;  // ~20 mph
+  const rides     = origSched.rides;
+  const key       = van.pausedLegKey || '';
+  let pausedSeq   = 0;
+  let pausedPhase = 'between';
+  if (key.startsWith('ride_')) { pausedSeq = parseInt(key.split('_')[1]) || 0; pausedPhase = 'riding'; }
+  else if (key.startsWith('dh_')) { pausedSeq = parseInt(key.split('_')[1]) || 0; pausedPhase = 'deadhead'; }
+
+  let curLat = van.pausedLat ?? van.lat, curLon = van.pausedLon ?? van.lon;
+  let curTime = resumeMin;
+  const newRides = [];
+
+  for (const ride of rides) {
+    const seq = ride.seq;
+
+    if (pausedPhase === 'riding' && seq === pausedSeq) {
+      // Complete this ride from frozen position to its dropoff
+      const distM   = haversineM(curLat, curLon, ride.to_lat, ride.to_lon);
+      const rideMin = Math.max(distM / M_PER_MIN, 0.5);
+      newRides.push({ ...ride,
+        dh_from_lat: curLat, dh_from_lon: curLon,
+        depart_min: curTime, pickup_min: curTime, dropoff_min: curTime + rideMin,
+        dh_sec: 0, ride_sec: Math.round(rideMin * 60),
+      });
+      curLat = ride.to_lat; curLon = ride.to_lon; curTime += rideMin;
+      pausedPhase = 'done';
+      continue;
+    }
+
+    if (pausedPhase !== 'done' && seq <= pausedSeq) continue;  // skip past rides
+
+    const dhDistM   = haversineM(curLat, curLon, ride.from_lat, ride.from_lon);
+    const dhMin     = dhDistM / M_PER_MIN;
+    const earliest  = curTime + dhMin;
+    if (earliest > 1440) break;
+    if (earliest > ride.pickup_min + 90) continue;  // would arrive >90 min late → skip
+
+    const pickupMin = Math.max(earliest, curTime + dhMin);
+    const rideDistM = haversineM(ride.from_lat, ride.from_lon, ride.to_lat, ride.to_lon);
+    const rideMin   = Math.max(rideDistM / M_PER_MIN, 0.5);
+    newRides.push({ ...ride,
+      dh_from_lat: curLat, dh_from_lon: curLon,
+      depart_min: curTime, pickup_min: pickupMin, dropoff_min: pickupMin + rideMin,
+      dh_sec: Math.round(dhMin * 60), ride_sec: Math.round(rideMin * 60),
+    });
+    curLat = ride.to_lat; curLon = ride.to_lon; curTime = pickupMin + rideMin;
+    pausedPhase = 'done';
+  }
+
+  const rtbDistM = haversineM(curLat, curLon, FLEET_BASE_LAT, FLEET_BASE_LON);
+  return { ...origSched, rides: newRides,
+    rtb_from_lat: curLat, rtb_from_lon: curLon,
+    rtb_sec: Math.round(rtbDistM / M_PER_MIN * 60) };
+}
+
+// ── CSV Export / Import ──────────────────────────────────────────────────────
+
+function exportVanCsv(vanId) {
+  const van = vans.find(v => v.id === vanId);
+  if (!van) return;
+  const sched = _scheduleData[vanScheduleId(van)];
+  if (!sched?.rides?.length) { appendFleetMessage('system', 'No schedule to export.'); return; }
+  const esc  = s => `"${String(s||'').replace(/"/g,'""')}"`;
+  const rows = ['seq,start_time,from_address,to_address,from_lat,from_lon,to_lat,to_lon',
+    ...sched.rides.map(r => [r.seq, r.start_time||'', esc(r.from_address), esc(r.to_address),
+                              r.from_lat, r.from_lon, r.to_lat, r.to_lon].join(','))];
+  const a = Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(new Blob([rows.join('\n')], {type:'text/csv'})),
+    download: `van_${vanId}_${simDateStrPT()}.csv`,
+  });
+  a.click(); URL.revokeObjectURL(a.href);
+}
+
+function triggerVanImport(vanId) {
+  const input = Object.assign(document.createElement('input'), { type:'file', accept:'.csv' });
+  input.onchange = e => { if (e.target.files[0]) importVanCsv(vanId, e.target.files[0]); };
+  input.click();
+}
+
+async function importVanCsv(vanId, file) {
+  let text;
+  try { text = await file.text(); } catch(e) { appendFleetMessage('system','Cannot read file.'); return; }
+  const rides = _parseCsvRides(text);
+  if (!rides.length) { appendFleetMessage('system', 'CSV empty or unreadable.'); return; }
+
+  const van = vans.find(v => v.id === vanId);
+  if (!van) return;
+
+  // Always geocode from addresses — coordinates in CSV may be missing or incorrect
+  appendFleetMessage('system', `Geocoding ${rides.length * 2} addresses…`);
+  let failed = 0;
+  for (const r of rides) {
+    if (r.from_address) {
+      const gc = await _geocodeAddr(r.from_address);
+      if (gc) { r.from_lat = gc.lat; r.from_lon = gc.lon; }
+      else { failed++; appendFleetMessage('system', `⚠ Not found: ${r.from_address}`); }
+    }
+    if (r.to_address) {
+      const gc = await _geocodeAddr(r.to_address);
+      if (gc) { r.to_lat = gc.lat; r.to_lon = gc.lon; }
+      else { failed++; appendFleetMessage('system', `⚠ Not found: ${r.to_address}`); }
+    }
+  }
+
+  const dateStr  = document.getElementById('sched-date')?.value || simDateStrPT();
+  const newSched = _buildSchedFromCsvRides(van, rides, dateStr, simMinPT());
+  if (!newSched.rides.length) {
+    appendFleetMessage('system', 'No valid rides after geocoding — check addresses.');
+    return;
+  }
+
+  const API_BASE = window.ADA_API_BASE || '';
+  const schedId  = vanScheduleId(van);
+  try {
+    const resp = await fetch(`${API_BASE}/api/fleet/schedule/${schedId}`, {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ date: dateStr, rides: newSched.rides, recompute: false }),
+    });
+    if (!resp.ok) { appendFleetMessage('system', `Import failed: HTTP ${resp.status}`); return; }
+  } catch (err) { appendFleetMessage('system', `Import error: ${err.message}`); return; }
+
+  _scheduleData[schedId] = newSched;
+  van.paused = false; van.currentLegKey = ''; van.routeCoords = null; van.routeStreets = []; van.distM = 0;
+  Object.keys(_routeCache).filter(k => k.startsWith(schedId+':')).forEach(k => delete _routeCache[k]);
+  renderScheduleSidebar();
+  const note = failed ? ` (${failed} address(es) not geocoded — those rides skipped)` : '';
+  appendFleetMessage('system', `Van ${vanId}: imported ${newSched.rides.length} rides${note}.`);
+}
+
+async function _geocodeAddr(address) {
+  // 1. Check address pool first — instant, no API call
+  const pool = await loadAddressPool().catch(() => null);
+  if (pool) {
+    const norm = address.trim().toLowerCase();
+    const hit  = pool.find(e => e.address.toLowerCase() === norm);
+    if (hit) return { lat: hit.lat, lon: hit.lon };
+  }
+  // 2. Fall back to Nominatim via backend proxy
+  const API_BASE = window.ADA_API_BASE || '';
+  try {
+    const resp = await fetch(`${API_BASE}/api/geocode?q=${encodeURIComponent(address)}`);
+    if (!resp.ok) return null;
+    const d = await resp.json();
+    if (d.lat && d.lon) return { lat: d.lat, lon: d.lon };
+  } catch (e) {}
+  return null;
+}
+
+function _buildSchedFromCsvRides(van, csvRides, dateStr, simMin) {
+  const M_PER_MIN = 533.4;
+  let curLat = van.lat, curLon = van.lon, curTime = simMin;
+  const newRides = [];
+
+  for (let i = 0; i < csvRides.length; i++) {
+    const r = csvRides[i];
+    if (r.from_lat == null || r.to_lat == null) continue;  // geocoding failed for this ride
+    const dhDistM  = haversineM(curLat, curLon, r.from_lat, r.from_lon);
+    const dhMin    = dhDistM / M_PER_MIN;
+    const earliest = curTime + dhMin;
+    const scheduled = _parseHHMM(r.start_time);
+    if (earliest > 1440) break;
+    if (scheduled !== null && earliest > scheduled + 90) continue;
+    const pickupMin = scheduled !== null ? Math.max(earliest, scheduled) : earliest;
+    const rideDistM = haversineM(r.from_lat, r.from_lon, r.to_lat, r.to_lon);
+    const rideMin   = Math.max(rideDistM / M_PER_MIN, 0.5);
+    newRides.push({
+      seq: i + 1, start_time: r.start_time || _fmtSchedMin(pickupMin),
+      from_address: r.from_address || '', to_address: r.to_address || '',
+      from_lat: r.from_lat, from_lon: r.from_lon, to_lat: r.to_lat, to_lon: r.to_lon,
+      dh_from_lat: curLat, dh_from_lon: curLon,
+      depart_min: curTime, pickup_min: pickupMin, dropoff_min: pickupMin + rideMin,
+      dh_sec: Math.round(dhMin * 60), ride_sec: Math.round(rideMin * 60),
+    });
+    curLat = r.to_lat; curLon = r.to_lon; curTime = pickupMin + rideMin;
+  }
+
+  const schedId  = vanScheduleId(van);
+  const rtbDistM = haversineM(curLat, curLon, FLEET_BASE_LAT, FLEET_BASE_LON);
+  return { van_id: schedId, date: dateStr, rides: newRides,
+    rtb_from_lat: curLat, rtb_from_lon: curLon,
+    rtb_sec: Math.round(rtbDistM / M_PER_MIN * 60) };
+}
+
+function _parseCsvRides(text) {
+  const lines  = text.trim().split(/\r?\n/);
+  if (lines.length < 2) return [];
+  const header = _splitCsvLine(lines[0]).map(h => h.toLowerCase().trim());
+  return lines.slice(1).map(line => {
+    const cols = _splitCsvLine(line), row = {};
+    header.forEach((h, i) => row[h] = (cols[i]||'').trim());
+    if (!row.from_address && !row.to_address) return null;
+    return { seq: parseInt(row.seq)||0, start_time: row.start_time||'',
+             from_address: row.from_address||'', to_address: row.to_address||'',
+             from_lat: null, from_lon: null, to_lat: null, to_lon: null };
+  }).filter(Boolean);
+}
+
+function _splitCsvLine(line) {
+  const result = []; let cur = '', inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') { if (inQ && line[i+1]==='"') { cur+='"'; i++; } else inQ=!inQ; }
+    else if (c === ',' && !inQ) { result.push(cur); cur = ''; }
+    else cur += c;
+  }
+  result.push(cur); return result;
+}
+
+function _parseHHMM(str) {
+  const m = (str||'').match(/^(\d{1,2}):(\d{2})$/);
+  return m ? parseInt(m[1])*60 + parseInt(m[2]) : null;
+}
+
+function _fmtSchedMin(min) {
+  return `${String(Math.floor(min/60)).padStart(2,'0')}:${String(Math.floor(min%60)).padStart(2,'0')}`;
 }
 
 function pickRandomAddresses(n) {
@@ -3855,11 +4557,6 @@ function initFleetMap() {
     maxZoom: 19,
     className: 'dark-map-labels',
   }).addTo(fleetMap);
-  // Pre-load the van image; once ready, refresh all markers with colorized icons
-  _loadVanImage().then(img => {
-    if (!img) return;
-    vans.forEach(v => updateVanMarker(v));
-  });
 }
 
 function setFleetMapTheme(theme) {
@@ -3885,19 +4582,32 @@ function setFleetMapTheme(theme) {
       className: 'dark-map-labels',
     }).addTo(fleetMap);
   }
-  vans.forEach(v => updateVanMarker(v));  // refresh icon number color
+  vans.forEach(v => updateVanMarker(v));  // refresh icon number color (light/dark text)
+  vans.forEach(v => setVanLights(v, v.currentPhase || 'base'));
 }
 
 function updateVanMarker(van) {
   if (!fleetMap || van.lat === null) return;
   updateVanRouteLines(van);
-  const icon = makeVanIcon(van.id, van.color, van.bearing);
   if (!van.marker) {
+    const icon = makeVanIcon(van.id, van.color, van.bearing);
     van.marker = L.marker([van.lat, van.lon], { icon, zIndexOffset: 500 }).addTo(fleetMap);
-    van.marker.on('click', () => openVanModal(van.id));
+    van.marker.on('click', () => toggleVanCard(van.id));
+    van._lastBearing = van.bearing;
   } else {
     van.marker.setLatLng([van.lat, van.lon]);
-    van.marker.setIcon(icon);
+    {
+      // Bearing-only update via CSS — no DOM replacement, no flash
+      const diff = Math.abs(((van.bearing - (van._lastBearing || 0)) + 540) % 360 - 180);
+      if (diff > 3) {
+        const el = van.marker.getElement();
+        if (el) {
+          const inner = el.querySelector('div');
+          if (inner) inner.style.transform = `rotate(${van.bearing}deg)`;
+        }
+        van._lastBearing = van.bearing;
+      }
+    }
   }
 }
 
@@ -3907,58 +4617,124 @@ async function fleetTick() {
   if (_fleetTickBusy) return;
   _fleetTickBusy = true;
   try {
-    const isBack = fleetMode === 'bwd' || fleetMode === 'bwd10';
-    const isFast = fleetMode === 'fwd10' || fleetMode === 'bwd10';
-    const mult   = isFast ? 10 : 1;
-    const dir    = isBack ? -1 : 1;
-    const simSec = (FLEET_TICK_MS / 1000) * mult;
+    const timePT = simMinPT();
 
     for (const van of vans) {
-      if (van.fetchingRoute) continue;
-      if (!van.routeCoords)  continue;
-      if (van.paused)        continue;
-      const total = vanRouteTotalM(van);
-      if (total <= 0) continue;
 
-      const mps   = vanStreetMph(van) * 0.44704;
-      const delta = mps * simSec * dir;
-      const newDist = Math.max(0, Math.min(total, van.distM + delta));
-      van.distM = newDist;
+      // ── Paused van ────────────────────────────────────────────
+      if (van.paused) {
+        if (timePT < 1440) {
+          if (van.pausedLat != null) { van.lat = van.pausedLat; van.lon = van.pausedLon; }
+          van.currentPhase = 'paused';
+        } else {
+          const pLat = van.pausedLat ?? FLEET_BASE_LAT, pLon = van.pausedLon ?? FLEET_BASE_LON;
+          const distM = haversineM(pLat, pLon, FLEET_BASE_LAT, FLEET_BASE_LON);
+          const travelMin = distM / 533.4;   // ~20 mph
+          const elapsed   = timePT - 1440;
+          if (elapsed >= travelMin || distM < 10) {
+            van.lat = FLEET_BASE_LAT; van.lon = FLEET_BASE_LON;
+            van.paused = false; van.currentPhase = 'base';
+          } else {
+            const frac = elapsed / travelMin;
+            van.lat = pLat + (FLEET_BASE_LAT - pLat) * frac;
+            van.lon = pLon + (FLEET_BASE_LON - pLon) * frac;
+            van.bearing = Math.atan2(FLEET_BASE_LON - pLon, FLEET_BASE_LAT - pLat) * 180 / Math.PI;
+            van.currentPhase = 'returning';
+          }
+        }
+        updateVanMarker(van);
+        setVanLights(van, van.currentPhase === 'base' ? 'base' : 'paused');
+        continue;
+      }
 
-      const pos = vanPosAtDist(van, van.distM);
-      if (pos) { van.lat = pos.lat; van.lon = pos.lon; van.bearing = pos.bearing; }
-      updateVanMarker(van);
+      const schedId = vanScheduleId(van);
+      const sched   = _scheduleData[schedId];
+      if (!sched) {
+        van.lat = FLEET_BASE_LAT; van.lon = FLEET_BASE_LON;
+        van.currentPhase = 'base';
+        updateVanMarker(van);
+        setVanLights(van, 'base');
+        continue;
+      }
 
-      // Per-block event check: trigger on street change or every 150 m (400 m on freeway)
-      if (dir > 0) {
-        const curStreet  = simStreetNameAtVan(van);
-        const distSince  = van.distM - van.lastCheckDistM;
-        const threshold  = FREEWAY_RE.test(curStreet) ? 400 : 150;
-        const newStreet  = curStreet && curStreet !== van.lastStreet && van.lastStreet !== '';
-        if (distSince >= threshold || newStreet) {
-          const cLat = ((van.lastCheckLat ?? van.lat) + van.lat) / 2;
-          const cLon = ((van.lastCheckLon ?? van.lon) + van.lon) / 2;
-          checkVanBlock(van, cLat, cLon, curStreet || van.lastStreet).catch(() => {});
-          van.lastCheckDistM = van.distM;
-          van.lastCheckLat   = van.lat;
-          van.lastCheckLon   = van.lon;
-          van.lastStreet     = curStreet || van.lastStreet;
+      const leg = getVanLegInfo(sched, timePT);
+
+      // When leg changes, clear stale route and adopt cached one if available
+      if (leg.legKey !== van.currentLegKey) {
+        van.currentLegKey = leg.legKey;
+        van.currentPhase  = leg.phase;
+        van.distM         = 0;
+        const ck = `${schedId}:${leg.legKey}`;
+        const cr = _routeCache[ck];
+        van.routeCoords  = cr ? cr.coords  : null;
+        van.routeStreets = cr ? cr.streets : [];
+        updateVanRouteLines(van);
+      }
+
+      if (leg.phase === 'base') {
+        van.lat = FLEET_BASE_LAT; van.lon = FLEET_BASE_LON; van.bearing = 0;
+        if (van.routeCoords) { van.routeCoords = null; van.routeStreets = []; updateVanRouteLines(van); }
+        updateVanMarker(van);
+        setVanLights(van, 'base');
+        continue;
+      }
+
+      // Kick off async route fetch if not yet cached
+      const cacheKey = `${schedId}:${leg.legKey}`;
+      if (!van.routeCoords) {
+        const cr = _routeCache[cacheKey];
+        if (cr) { van.routeCoords = cr.coords; van.routeStreets = cr.streets; }
+        else if (!_routeFetching.has(cacheKey) && leg.fromLat != null) {
+          ensureRouteForLeg(cacheKey, leg.fromLat, leg.fromLon, leg.toLat, leg.toLon)
+            .then(r => { if (r) { van.routeCoords = r.coords; van.routeStreets = r.streets; } })
+            .catch(() => {});
         }
       }
 
-      // Reached destination → advance to next
-      if (!isBack && van.distM >= total) {
-        van.currentDestIdx = (van.currentDestIdx + 1) % van.destinations.length;
-        // Non-blocking: fire and forget (fetchingRoute flag prevents re-entry)
-        loadVanRoute(van).then(() => renderVanList());
+      // Compute position: use route if available, else linear interpolation
+      let newLat, newLon, newBearing;
+      if (van.routeCoords && van.routeCoords.length >= 2) {
+        const totalM = coordsTotalM(van.routeCoords);
+        van.distM    = leg.frac * totalM;
+        const pos    = posAtDistM(van.routeCoords, van.distM);
+        if (pos) { newLat = pos.lat; newLon = pos.lon; newBearing = pos.bearing; }
+      }
+      if (newLat == null && leg.fromLat != null) {
+        newLat     = leg.fromLat + (leg.toLat - leg.fromLat) * leg.frac;
+        newLon     = leg.fromLon + (leg.toLon - leg.fromLon) * leg.frac;
+        newBearing = van.bearing;
+      }
+      if (newLat == null) continue;
+
+      const prevLat = van.lat, prevLon = van.lon;
+      van.lat = newLat; van.lon = newLon;
+      van.bearing = newBearing ?? van.bearing;
+      updateVanMarker(van);
+      setVanLights(van, leg.phase);
+
+      // Per-block event check on riding legs
+      if (leg.phase === 'riding' && prevLat != null) {
+        const moved = haversineM(prevLat, prevLon, newLat, newLon);
+        van._distSinceCheck = (van._distSinceCheck || 0) + moved;
+        const curStreet  = simStreetNameAtVan(van);
+        const threshold  = FREEWAY_RE.test(curStreet) ? 400 : 150;
+        const streetChng = curStreet && curStreet !== van.lastStreet && van.lastStreet !== '';
+        if (van._distSinceCheck >= threshold || streetChng) {
+          checkVanBlock(van, van.lat, van.lon, curStreet || van.lastStreet).catch(() => {});
+          van._distSinceCheck = 0;
+          van.lastStreet   = curStreet || van.lastStreet;
+          van.lastCheckLat = van.lat;
+          van.lastCheckLon = van.lon;
+        }
       }
     }
 
-    fleetTimeSec = Math.max(0, fleetTimeSec + simSec * dir);
-    updateFleetTime();
-    updateFleetSpeedLabel();
+    updateFleetClock();
 
-    // Client-side GC: sweep expired markers every 30 s (no backend calls)
+    // Throttle heavy DOM updates to ~1 Hz
+    if (++_uiTick >= 10) { _uiTick = 0; _updateVanStatusChips(); }
+
+    // Client-side GC: sweep expired markers every ~30 s
     if (++_fleetGcTick >= 300) {
       _fleetGcTick = 0;
       const now = Date.now();
@@ -3971,138 +4747,55 @@ async function fleetTick() {
   }
 }
 
-function fleetSetMode(mode) {
+function startFleetTick() {
+  if (fleetInterval) return;
+  fleetInterval = setInterval(() => { fleetTick(); }, FLEET_TICK_MS);
+}
+
+function stopFleetTick() {
   if (fleetInterval) { clearInterval(fleetInterval); fleetInterval = null; }
-  // Toggle current mode → stop
-  if (mode !== 'stopped' && fleetMode === mode) {
-    fleetMode = 'stopped';
-    vans.forEach(v => { v.status = 'stopped'; });
-    renderVanList();
-    updateFleetControls();
-    updateFleetSpeedLabel();
-    return;
-  }
-  fleetMode = mode;
-  if (mode !== 'stopped') {
-    vans.forEach(v => { v.status = v.paused ? 'stopped' : 'running'; });
-    fleetInterval = setInterval(() => { fleetTick(); }, FLEET_TICK_MS);
-  } else {
-    vans.forEach(v => { v.status = 'stopped'; });
-  }
-  renderVanList();
-  updateFleetControls();
-  updateFleetSpeedLabel();
 }
 
 function fleetReset() {
-  fleetSetMode('stopped');
-  fleetTimeSec = 0;
-  vans.forEach(v => {
-    v.paused = false;
-    v.distM = 0;
-    if (v.destinations.length > 0) {
-      v.lat = v.destinations[0].lat;
-      v.lon = v.destinations[0].lon;
-      v.bearing = 0;
-    }
-    updateVanMarker(v);
-  });
-  updateFleetTime();
-  updateFleetSpeedLabel();
-  renderVanList();
+  resetSimTime();
+  const dateStr = simDateStrPT();
+  const dateEl  = document.getElementById('sched-date');
+  if (dateEl) dateEl.value = dateStr;
+  loadSchedules(dateStr);
 }
 
-function updateFleetControls() {
-  const map = { fwd:'fleet-btn-fwd', bwd:'fleet-btn-bwd', fwd10:'fleet-btn-fwd10', bwd10:'fleet-btn-bwd10' };
-  for (const [m, id] of Object.entries(map)) {
-    const btn = document.getElementById(id);
-    if (!btn) continue;
-    btn.style.background = fleetMode === m ? 'rgba(88,166,255,0.25)' : '';
-    if (m === 'fwd') btn.textContent = fleetMode === 'fwd' ? '⏸' : '▶';
-    if (m === 'bwd') btn.textContent = fleetMode === 'bwd' ? '⏸' : '◀';
-  }
-}
-
-function updateFleetTime() {
-  const el = document.getElementById('fleet-sim-time');
+function updateFleetClock() {
+  const el = document.getElementById('fleet-clock');
   if (!el) return;
-  if (fleetMode === 'stopped') { el.textContent = ''; return; }
-  const s  = Math.max(0, Math.round(fleetTimeSec));
-  const m  = Math.floor(s / 60);
-  const ss = (s % 60).toString().padStart(2, '0');
-  el.textContent = `🕐 ${m}:${ss}`;
+  const ptD = new Date(simNowMs() - 7 * 3_600_000);
+  const h   = String(ptD.getUTCHours()).padStart(2,'0');
+  const m   = String(ptD.getUTCMinutes()).padStart(2,'0');
+  const s   = String(ptD.getUTCSeconds()).padStart(2,'0');
+  el.textContent = `${h}:${m}:${s}`;
 }
 
-function updateFleetSpeedLabel() {
-  const el = document.getElementById('fleet-sim-speed');
-  if (!el || fleetMode === 'stopped') { if (el) el.textContent = ''; return; }
-  el.textContent = (fleetMode === 'fwd10' || fleetMode === 'bwd10') ? '×10' : '×1';
-}
+// ── Van list (stub kept for backward compat with chat commands) ────
+function renderVanList() { /* replaced by accordion sidebar */ }
 
-// ── Van list rendering ─────────────────────────────────────────
-
-function toggleVanPause(vanId) {
-  const van = vans.find(v => v.id === vanId);
-  if (!van) return;
-  if (van.paused || fleetMode === 'stopped') {
-    van.paused = false;
-    van.status = 'running';
-    if (fleetMode === 'stopped') fleetSetMode('fwd');
-  } else {
-    van.paused = true;
-    van.status = 'stopped';
-  }
-  renderVanList();
-  if (fleetModalVanId === vanId) openVanModal(vanId);  // refresh modal if open
-}
-
-function renderVanList() {
-  const el = document.getElementById('van-list');
-  if (!el) return;
-  el.innerHTML = vans.map(v => {
-    const canRun = !v.paused && v.status === 'running';
-    const btnLabel = canRun ? '⏹' : '▶';
-    const btnTitle = canRun ? 'Stop van' : 'Start van';
-    return `
-    <div class="van-item" onclick="openVanModal(${v.id})">
-      <div class="van-color-swatch" style="background:${v.color}"></div>
-      <span class="van-label">Van ${v.id}</span>
-      <span class="van-badge ${v.status}">${v.status === 'running' ? 'Running' : 'Stopped'}</span>
-      <button class="van-toggle-btn" onclick="event.stopPropagation();toggleVanPause(${v.id})" title="${btnTitle}">${btnLabel}</button>
-    </div>`;
-  }).join('');
-}
-
-// ── Van modal ──────────────────────────────────────────────────
+// ── Van modal (legacy; kept in DOM but not actively used) ──────────
 
 function openVanModal(vanId) {
   const van = vans.find(v => v.id === vanId);
   if (!van) return;
   fleetModalVanId = vanId;
-
+  const schedId = vanScheduleId(van);
+  const sched   = _scheduleData[schedId];
   document.getElementById('van-modal-title').textContent = `Van ${van.id}`;
-  const colorBox   = `<span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${van.color};vertical-align:middle;margin-right:6px;border:1px solid rgba(255,255,255,0.15);"></span>`;
-  const statusHtml = van.status === 'running'
-    ? '<span style="color:var(--green)">Running</span>'
-    : '<span style="color:var(--muted)">Stopped</span>';
-  const destInfo = van.destinations[van.currentDestIdx]
-    ? `→ ${van.destinations[van.currentDestIdx].address}` : '';
+  const phaseStr = _vanPhaseLabel(van);
   document.getElementById('van-modal-meta').innerHTML =
-    `${colorBox}${statusHtml} &nbsp;|&nbsp; Next: <span style="color:var(--blue)">${destInfo}</span>`;
-
+    `<span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${van.color};vertical-align:middle;margin-right:6px;border:1px solid rgba(255,255,255,.15);"></span>
+     ${phaseStr} &nbsp;|&nbsp; <span style="color:var(--muted);">${sched ? `${sched.rides?.length||0} rides` : 'No schedule'}</span>`;
   const tbody = document.getElementById('van-dest-tbody');
-  tbody.innerHTML = van.destinations.map((d, i) => `
-    <tr class="${i === van.currentDestIdx ? 'dest-current' : ''}">
-      <td style="color:var(--muted);width:28px;">${i + 1}</td>
-      <td><input type="text" value="${(d.address || '').replace(/"/g, '&quot;')}"
-           onchange="onVanDestEdit(${vanId}, ${i}, this.value)"/></td>
-    </tr>
-  `).join('');
-
-  const toggleBtn = document.getElementById('van-modal-toggle-btn');
-  if (toggleBtn) {
-    const canRun = !van.paused && van.status === 'running';
-    toggleBtn.textContent = canRun ? '⏹ Stop' : '▶ Start';
+  if (tbody && sched) {
+    tbody.innerHTML = sched.rides.map((r, i) => `<tr>
+      <td style="color:var(--muted);width:28px;">${r.seq}</td>
+      <td style="font-size:.75rem;">${escHtml(r.start_time||'')} — ${escHtml(r.from_address||'')} → ${escHtml(r.to_address||'')}</td>
+    </tr>`).join('');
   }
   document.getElementById('van-modal').classList.add('open');
 }
@@ -4112,103 +4805,7 @@ function closeVanModal() {
   fleetModalVanId = null;
 }
 
-function onVanDestEdit(vanId, idx, newAddress) {
-  const van = vans.find(v => v.id === vanId);
-  if (van && van.destinations[idx]) van.destinations[idx].address = newAddress;
-}
-
-async function saveVanConfig() {
-  // Re-fetch route for the van being edited so saved payload has fresh coords
-  const editedVan = fleetModalVanId ? vans.find(v => v.id === fleetModalVanId) : null;
-  if (editedVan) {
-    editedVan.routeCoords  = null;
-    editedVan.routeStreets = [];
-    appendFleetMessage('system', `Fetching route for Van${editedVan.id}…`);
-    await loadVanRoute(editedVan);
-    updateVanMarker(editedVan);
-  }
-
-  const payload = vans.map(v => ({
-    id:             v.id,
-    destinations:   v.destinations,
-    currentDestIdx: v.currentDestIdx,
-    routeCoords:    v.routeCoords  || null,
-    routeStreets:   v.routeStreets || [],
-  }));
-
-  // Option 3: mirror to localStorage for zero-network next load
-  try { localStorage.setItem('ada_fleet_routes', JSON.stringify(payload)); } catch (_) {}
-
-  try {
-    const resp = await fetch(`${API_BASE}/api/fleet/vans`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    closeVanModal();
-    appendFleetMessage('system', '✓ Fleet configuration saved.');
-  } catch (err) {
-    appendFleetMessage('system', `Save failed: ${err.message}`);
-  }
-}
-
-function _applyFleetConfig(data) {
-  for (const saved of data) {
-    const van = vans.find(v => v.id === saved.id);
-    if (!van) continue;
-    if (Array.isArray(saved.destinations) && saved.destinations.length >= NUM_DESTS) {
-      van.destinations   = saved.destinations;
-      van.currentDestIdx = saved.currentDestIdx ?? 1;
-      // Options 1+3: restore cached route so routing API is not needed
-      if (saved.routeCoords) {
-        van.routeCoords  = saved.routeCoords;
-        van.routeStreets = saved.routeStreets || [];
-      }
-    }
-  }
-}
-
-async function loadFleetConfig() {
-  // Option 3: try localStorage first (zero-network, instant)
-  try {
-    const cached = localStorage.getItem('ada_fleet_routes');
-    if (cached) {
-      const data = JSON.parse(cached);
-      if (Array.isArray(data) && data.length > 0) {
-        _applyFleetConfig(data);
-        return true;
-      }
-    }
-  } catch (_) {}
-
-  // Fall back to DynamoDB
-  try {
-    const resp = await fetch(`${API_BASE}/api/fleet/vans`);
-    if (!resp.ok) return false;
-    const data = await resp.json();
-    if (!Array.isArray(data) || data.length === 0) return false;
-    _applyFleetConfig(data);
-    // Seed localStorage so subsequent loads are instant
-    try { localStorage.setItem('ada_fleet_routes', JSON.stringify(data)); } catch (_) {}
-    return true;
-  } catch (_) { return false; }
-}
-
-// Option 2: parallel route loading with concurrency limit
-async function _loadRoutesParallel(vansToLoad, concurrency = 4) {
-  const queue = [...vansToLoad];
-  const worker = async () => {
-    while (queue.length) {
-      const van = queue.shift();
-      if (!van) break;
-      await loadVanRoute(van);
-      updateVanMarker(van);
-      renderVanList();
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(concurrency, vansToLoad.length) }, worker));
-}
+function saveVanConfig() { closeVanModal(); }
 
 // ── Fleet chat ─────────────────────────────────────────────────
 
@@ -4633,69 +5230,40 @@ function sendFleetQuestion() {
     return appendFleetMessage('system', 'Map switched to dark theme.');
   }
 
-  // ── Per-van commands: stop 7 / start 3 / restart 6 ──────────
-  const vanCmd = cmd.match(/^(stop|start|restart)\s+(\d+)$/);
+  // ── Speed commands ───────────────────────────────────────────
+  if (cmd === 'start 10x' || cmd === 'start fast' || cmd === '10x') {
+    setSimSpeed(10);
+    return appendFleetMessage('system', 'Speed set to 10×.');
+  }
+  if (cmd === 'start' || cmd === 'start 1x' || cmd === '1x') {
+    setSimSpeed(1);
+    return appendFleetMessage('system', 'Speed set to 1× (real time).');
+  }
+
+  // ── Reset / date ─────────────────────────────────────────────
+  if (cmd === 'reset') {
+    fleetReset();
+    return appendFleetMessage('system', 'Reset to current real time.');
+  }
+  if (cmd === 'generate' || cmd === 'generate schedule') {
+    onGenerateSchedules();
+    return;
+  }
+
+  // ── Van status query ─────────────────────────────────────────
+  const vanCmd = cmd.match(/^(van|status)\s+(\d+)$/);
   if (vanCmd) {
-    const action = vanCmd[1];
-    const vid    = parseInt(vanCmd[2]);
-    const van    = vans.find(v => v.id === vid);
+    const vid = parseInt(vanCmd[2]);
+    const van = vans.find(v => v.id === vid);
     if (!van) return appendFleetMessage('system', `Van ${vid} not found.`);
-
-    if (action === 'stop') {
-      van.paused = true;
-      van.status = 'stopped';
-      renderVanList();
-      return appendFleetMessage('system', `Van ${vid} stopped.`);
-    }
-    if (action === 'start') {
-      van.paused = false;
-      van.status = 'running';
-      if (fleetMode === 'stopped') fleetSetMode('fwd');
-      renderVanList();
-      return appendFleetMessage('system', `Van ${vid} started.`);
-    }
-    if (action === 'restart') {
-      van.paused = false;
-      van.distM  = 0;
-      van.currentDestIdx = 0;
-      if (van.destinations.length > 0) {
-        van.lat = van.destinations[0].lat;
-        van.lon = van.destinations[0].lon;
-        van.bearing = 0;
-        loadVanRoute(van).then(() => { updateVanMarker(van); renderVanList(); });
-      }
-      van.status = 'running';
-      if (fleetMode === 'stopped') fleetSetMode('fwd');
-      renderVanList();
-      return appendFleetMessage('system', `Van ${vid} restarted from origin.`);
-    }
-  }
-
-  // ── Fleet-wide commands ──────────────────────────────────────
-  if (cmd === 'stop') {
-    vans.forEach(v => { v.paused = false; });
-    fleetSetMode('stopped');
-    return appendFleetMessage('system', 'All vans stopped.');
-  }
-  if (cmd === 'start' || cmd === 'start 1x') {
-    vans.forEach(v => { v.paused = false; });
-    fleetSetMode('fwd');
-    return appendFleetMessage('system', 'All vans started.');
-  }
-  if (cmd === 'start 10x' || cmd === 'start fast') {
-    vans.forEach(v => { v.paused = false; });
-    fleetSetMode('fwd10');
-    return appendFleetMessage('system', 'All vans started at 10×.');
-  }
-  if (cmd === 'restart' || cmd === 'restart 1x') {
-    fleetReset();
-    fleetSetMode('fwd');
-    return appendFleetMessage('system', 'All vans restarted.');
-  }
-  if (cmd === 'restart 10x' || cmd === 'restart fast') {
-    fleetReset();
-    fleetSetMode('fwd10');
-    return appendFleetMessage('system', 'All vans restarted at 10×.');
+    const schedId = vanScheduleId(van);
+    const sched   = _scheduleData[schedId];
+    if (!sched) return appendFleetMessage('system', `Van ${vid}: no schedule loaded.`);
+    const phase = _vanPhaseLabel(van);
+    const timePT = simMinPT();
+    const leg   = getVanLegInfo(sched, timePT);
+    const rideInfo = leg.rideIdx != null ? ` (ride ${leg.rideIdx+1})` : '';
+    return appendFleetMessage('system', `Van ${vid}: ${phase}${rideInfo}`);
   }
 
   // ── Help ─────────────────────────────────────────────────────
@@ -4717,37 +5285,21 @@ function switchTab(tab) {
 
   if (tab === 'fleet' && !fleetInitialized) {
     fleetInitialized = true;
+    resetSimTime();
     initFleetMap();
-    initFleetVans();
-    // Load pool, then saved config, then init each van
-    loadAddressPool().then(async () => {
-      await loadFleetConfig();
-      // Initialize destinations for vans that didn't get saved config
-      for (const van of vans) {
-        if (van.destinations.length < NUM_DESTS) await initVanDestinations(van);
-      }
-
-      // Option 4: show van markers immediately at start position (lazy loading)
-      for (const van of vans) {
-        if (van.lat === null && van.destinations.length > 0) {
-          van.lat = van.destinations[0].lat;
-          van.lon = van.destinations[0].lon;
-        }
-        updateVanMarker(van);
-      }
-      renderVanList();
-
-      // Options 1+2+3: only fetch routes for vans with no cached route, in parallel
-      const vansNeedingRoutes = vans.filter(v => !v.routeCoords);
-      if (vansNeedingRoutes.length > 0) {
-        appendFleetMessage('system', `Fetching routes for ${vansNeedingRoutes.length} van(s)…`);
-        await _loadRoutesParallel(vansNeedingRoutes, 4);
-        appendFleetMessage('system', 'All routes ready.');
-      }
-
-      // Load existing event markers from DynamoDB after routes are ready
+    const todayPT = simDateStrPT();
+    const dateEl  = document.getElementById('sched-date');
+    if (dateEl) dateEl.value = todayPT;
+    // Load active van list from API, then initialize and load schedules
+    (async () => {
+      const nums = await _fetchActiveVanNums();
+      initFleetVans(nums);
+      vans.forEach(v => updateVanMarker(v));
+      const loaded = await loadSchedules(todayPT);
+      if (!loaded) appendFleetMessage('system', 'No schedules for today. Click ⚡ to generate.');
       loadFleetEventMarkers();
-    });
+    })();
+    startFleetTick();
   }
 
   if (tab === 'fleet' && fleetMap) {

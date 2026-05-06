@@ -1,10 +1,55 @@
+# Secrets
 .env
 sessions.json
+
+# Python cache
 __pycache__/
 *.pyc
+*.pyo
+
+# Old build artifacts (large)
 .aws-sam/
+.aws-build/
+package/
+lambda*.zip
+
+# Claude / IDE / test
+.claude/
+.pytest_cache/
+tests/
+pytest.ini
+
+# Static assets (served from S3/CloudFront)
 static/
-*.md
-deploy.sh
+
+# Images
+*.png
+*.jpg
+*.jpeg
+
+# City street data (read from S3 at runtime)
+city_streets*.json
+addresses_pool.json
+ada_sessions_raw.json
+ada_conversation_log.txt
+ada_sessions_raw.json
+fuzzy_out.json
+fuzzy_payload.json
+get_index_out.json
+get_index_payload.json
+fleet_screen.jpg
+street_block.txt
+
+# Config / deploy scripts (not needed in Lambda)
+samconfig*.toml
+template.yaml
+*.sh
+migrate_events_to_dynamo.py
+generate_addresses.py
+generate_addresses.log
+benchmark_response_time.py
+tests/perf_response_time.py
+
+# Source files not used in Lambda
 fetch_streets.py
 simulator.py
