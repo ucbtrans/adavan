@@ -50,6 +50,8 @@ Resources:
         AllowMethods:
           - GET
           - POST
+          - PUT
+          - DELETE
           - OPTIONS
         AllowHeaders:
           - Content-Type
@@ -103,13 +105,21 @@ Resources:
             BucketName: !Ref DataBucketName
         - DynamoDBCrudPolicy:
             TableName: !Ref EventsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FleetConfigTable
       Events:
         DailySchedule:
           Type: Schedule
           Properties:
-            Schedule: cron(0 6 * * ? *)
+            Schedule: cron(0 12 * * ? *)
             Name: !Sub "ada-daily-simulation${Suffix}"
             Description: Generate daily traffic events for all cities
+        MidnightPTSchedule:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 7 * * ? *)
+            Name: !Sub "ada-midnight-pt-schedule${Suffix}"
+            Description: Generate fleet schedules at midnight Pacific time (07:00 UTC)
 
   # ── DynamoDB events table ───────────────────────────────────────────────────
   EventsTable:

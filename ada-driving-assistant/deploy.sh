@@ -100,7 +100,7 @@ echo "==> Syncing source files into SAM build directory and rebuilding lambda.zi
 SAM_BUILD_API=".aws-sam/build/ApiFunction"
 SAM_BUILD_SIM=".aws-sam/build/SimulationFunction"
 for f in app.py assistant.py detections_adapter.py events.py fetch_streets.py \
-          lambda_function.py location.py objects.py parking.py \
+          lambda_function.py location.py objects.py parking.py schedule.py \
           sessions.py simulator.py; do
   [[ -f "$f" ]] && cp "$f" "$SAM_BUILD_API/$f"
   [[ -f "$f" ]] && cp "$f" "$SAM_BUILD_SIM/$f"
@@ -163,6 +163,9 @@ aws s3 cp _deploy_index.html \
 aws s3 cp static/ada_logo.jpg \
   "s3://$WEB_BUCKET_V2/ada_logo.jpg" \
   --content-type "image/jpeg"
+aws s3 cp van_top2.png \
+  "s3://$WEB_BUCKET_V2/van_top.png" \
+  --content-type "image/png"
 
 if [[ -f "addresses_pool.json" ]]; then
   echo "==> Uploading addresses_pool.json to s3://$WEB_BUCKET_V2..."
@@ -170,6 +173,10 @@ if [[ -f "addresses_pool.json" ]]; then
     "s3://$WEB_BUCKET_V2/addresses_pool.json" \
     --content-type "application/json" \
     --cache-control "public, max-age=86400"
+  echo "==> Uploading addresses_pool.json to s3://ada-driving-assistant (data bucket for Lambda)..."
+  aws s3 cp addresses_pool.json \
+    "s3://ada-driving-assistant/addresses_pool.json" \
+    --content-type "application/json"
 fi
 
 # v1 prod bucket — only on prod deploys
@@ -182,6 +189,9 @@ if [[ "$ENV" == "prod" ]]; then
   aws s3 cp static/ada_logo.jpg \
     "s3://$V1_BUCKET/ada_logo.jpg" \
     --content-type "image/jpeg"
+  aws s3 cp van_top2.png \
+    "s3://$V1_BUCKET/van_top.png" \
+    --content-type "image/png"
   if [[ -f "addresses_pool.json" ]]; then
     aws s3 cp addresses_pool.json \
       "s3://$V1_BUCKET/addresses_pool.json" \

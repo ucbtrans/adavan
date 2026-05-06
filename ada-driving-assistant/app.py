@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request, send_from_directory
 
 import sessions as sess
+import schedule as sched_mod
 from assistant import answer_question
 from events import (clear_event, event_lat_lon, get_events_by_city,
                     get_events_by_street, get_events_near, put_event)
@@ -549,15 +550,12 @@ def _get_fleet_table():
 
 @app.route("/api/fleet/vans")
 def api_fleet_get():
-    """Load fleet van configuration from DynamoDB."""
+    """GET /api/fleet/vans — return active van numbers list."""
     try:
-        resp = _get_fleet_table().get_item(Key={"config_key": FLEET_CONFIG_KEY})
-        item = resp.get("Item")
-        if item:
-            return jsonify(json.loads(item["config_value"]))
-        return jsonify([])
-    except Exception:
-        return jsonify([])
+        nums = sched_mod.get_active_vans()
+        return jsonify({"vans": nums})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 @app.route("/api/fleet/vans", methods=["POST"])
@@ -574,6 +572,235 @@ def api_fleet_save():
         return jsonify({"ok": True})
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
+
+
+# ── Fleet schedule endpoints ──────────────────────────────────────────────────
+
+@app.route("/api/fleet/schedule")
+def api_fleet_schedule_get():
+    """GET /api/fleet/schedule?date=YYYY-MM-DD — return all van schedules, auto-generating if missing."""
+    date_str = request.args.get("date", datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+    try:
+        schedules = sched_mod.get_all_schedules(date_str)
+        if not schedules:
+            pool = _load_address_pool()
+            if pool:
+                for i in sched_mod.get_active_vans():
+                    v_id = sched_mod.van_id(i)
+                    try:
+                        s = sched_mod.generate_van_schedule(v_id, date_str, pool)
+                        sched_mod.save_schedule(s)
+                    except Exception:
+                        pass
+                schedules = sched_mod.get_all_schedules(date_str)
+        return jsonify({"date": date_str, "schedules": schedules})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/fleet/schedule/<van_id>", methods=["PUT"])
+def api_fleet_schedule_save(van_id: str):
+    """PUT /api/fleet/schedule/VAN_01 — save (and recompute) a van schedule."""
+    body = request.json or {}
+    date_str = body.get("date", datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+    rides    = body.get("rides", [])
+    recompute = body.get("recompute", False)
+
+    # Geocode any rides that lack lat/lon
+    for r in rides:
+        if not r.get("from_lat") and r.get("from_address"):
+            lat, lon = sched_mod.geocode(r["from_address"])
+            if lat: r["from_lat"], r["from_lon"] = lat, lon
+        if not r.get("to_lat") and r.get("to_address"):
+            lat, lon = sched_mod.geocode(r["to_address"])
+            if lat: r["to_lat"], r["to_lon"] = lat, lon
+
+    # Merge into existing or create fresh shell
+    existing = sched_mod.get_schedule(van_id, date_str) or {
+        "van_id": van_id, "date": date_str,
+        "rtb_from_lat": sched_mod.BASE_LAT, "rtb_from_lon": sched_mod.BASE_LON,
+        "rtb_sec": 0,
+    }
+    existing["rides"] = rides
+
+    if recompute:
+        try:
+            existing = sched_mod.recompute_schedule_timing(existing)
+        except Exception as exc:
+            return jsonify({"error": f"recompute failed: {exc}"}), 500
+
+    try:
+        sched_mod.save_schedule(existing)
+        return jsonify({"ok": True, "schedule": existing})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/fleet/schedule/generate", methods=["POST"])
+def api_fleet_schedule_generate():
+    """POST /api/fleet/schedule/generate — generate random schedules for a date."""
+    body     = request.json or {}
+    date_str = body.get("date", datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+    force    = body.get("force", False)
+
+    if not force and sched_mod.schedules_exist(date_str):
+        return jsonify({"ok": True, "skipped": True, "reason": "schedules already exist"})
+
+    # Load address pool from S3 or local file
+    pool = _load_address_pool()
+    if not pool:
+        return jsonify({"error": "address pool unavailable"}), 500
+
+    generated, errors = [], []
+    for i in sched_mod.get_active_vans():
+        v_id = sched_mod.van_id(i)
+        try:
+            s = sched_mod.generate_van_schedule(v_id, date_str, pool)
+            sched_mod.save_schedule(s)
+            generated.append(v_id)
+        except Exception as exc:
+            errors.append({"van_id": v_id, "error": str(exc)})
+
+    return jsonify({"ok": True, "date": date_str,
+                    "generated": generated, "errors": errors})
+
+
+@app.route("/api/fleet/van", methods=["POST"])
+def api_fleet_van_create():
+    """POST /api/fleet/van — pick a number, generate schedule, find next ride position."""
+    body     = request.json or {}
+    date_str = body.get("date", _pt_date_str())
+
+    active_nums = sched_mod.get_active_vans()
+    max_num     = max(active_nums) if active_nums else 0
+    used        = set(active_nums)
+    gaps        = [n for n in range(1, max_num + 1) if n not in used]
+    new_num     = gaps[0] if gaps else max_num + 1
+    v_id        = sched_mod.van_id(new_num)
+
+    pool = _load_address_pool()
+    if not pool:
+        return jsonify({"error": "address pool unavailable"}), 500
+
+    try:
+        sched = sched_mod.generate_van_schedule(v_id, date_str, pool)
+        sched_mod.save_schedule(sched)
+    except Exception as exc:
+        return jsonify({"error": f"schedule generation failed: {exc}"}), 500
+
+    active_nums.append(new_num)
+    sched_mod.set_active_vans(active_nums)
+
+    now_pt = datetime.now(timezone.utc) - timedelta(hours=7)
+    now_pt_min = now_pt.hour * 60 + now_pt.minute
+    rides      = sched.get("rides", [])
+    next_ride  = next((r for r in rides if r.get("pickup_min", 9999) >= now_pt_min), None)
+
+    if next_ride:
+        start_lat = next_ride["from_lat"]
+        start_lon = next_ride["from_lon"]
+        msg = f"{v_id} added, positioned at Ride {next_ride['seq']} starting {next_ride['start_time']}"
+    else:
+        start_lat = sched_mod.BASE_LAT
+        start_lon = sched_mod.BASE_LON
+        msg = f"{v_id} added at base — no rides remaining for today"
+
+    return jsonify({
+        "ok":            True,
+        "van_id":        v_id,
+        "van_num":       new_num,
+        "schedule":      sched,
+        "start_lat":     start_lat,
+        "start_lon":     start_lon,
+        "next_ride_seq": next_ride["seq"] if next_ride else None,
+        "message":       msg,
+    })
+
+
+@app.route("/api/fleet/van/<van_id>", methods=["DELETE"])
+def api_fleet_van_delete(van_id: str):
+    """DELETE /api/fleet/van/VAN_03?date=YYYY-MM-DD — remove van + delete its schedule."""
+    date_str = request.args.get("date", _pt_date_str())
+    try:
+        van_num = int(van_id.replace("VAN_", ""))
+    except ValueError:
+        return jsonify({"error": f"invalid van_id: {van_id}"}), 400
+
+    try:
+        sched_mod.delete_schedule(van_id, date_str)
+    except Exception as exc:
+        return jsonify({"error": f"delete schedule failed: {exc}"}), 500
+
+    active_nums = sched_mod.get_active_vans()
+    if van_num in active_nums:
+        active_nums.remove(van_num)
+        sched_mod.set_active_vans(active_nums)
+
+    return jsonify({"ok": True, "van_id": van_id})
+
+
+def _pt_date_str() -> str:
+    return (datetime.now(timezone.utc) - timedelta(hours=7)).strftime("%Y-%m-%d")
+
+
+@app.route("/api/fleet/transit")
+def api_fleet_transit():
+    """GET /api/fleet/transit?from_lat&from_lon&to_lat&to_lon — OSRM transit time."""
+    try:
+        from_lat = float(request.args["from_lat"])
+        from_lon = float(request.args["from_lon"])
+        to_lat   = float(request.args["to_lat"])
+        to_lon   = float(request.args["to_lon"])
+    except (KeyError, ValueError):
+        return jsonify({"error": "from_lat, from_lon, to_lat, to_lon required"}), 400
+    try:
+        sec = sched_mod.osrm_duration_sec(from_lat, from_lon, to_lat, to_lon)
+        return jsonify({"duration_sec": round(sec), "duration_min": round(sec / 60, 1)})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/geocode")
+def api_geocode_proxy():
+    """GET /api/geocode?q=address — Nominatim proxy (avoids browser CORS issues)."""
+    q = request.args.get("q", "").strip()
+    if not q:
+        return jsonify({"error": "q required"}), 400
+    lat, lon = sched_mod.geocode(q)
+    if lat is None:
+        return jsonify({"error": "not found"}), 404
+    return jsonify({"lat": lat, "lon": lon, "address": q})
+
+
+# ── Address pool loader ───────────────────────────────────────────────────────
+_address_pool_cache = None
+
+def _load_address_pool() -> list:
+    global _address_pool_cache
+    if _address_pool_cache:
+        return _address_pool_cache
+
+    # Try S3 first (deployed), then local file
+    bucket = os.environ.get("S3_BUCKET", "")
+    if bucket:
+        try:
+            import boto3 as b3
+            obj = b3.client("s3").get_object(Bucket=bucket, Key="addresses_pool.json")
+            pool = json.loads(obj["Body"].read())
+            _address_pool_cache = [{"address": p["address"], "lat": p["lat"], "lon": p["lon"]} for p in pool]
+            return _address_pool_cache
+        except Exception:
+            pass
+
+    # Local fallback
+    local = os.path.join(os.path.dirname(__file__), "addresses_pool.json")
+    if os.path.exists(local):
+        with open(local, encoding="utf-8") as f:
+            pool = json.load(f)
+        _address_pool_cache = [{"address": p["address"], "lat": p["lat"], "lon": p["lon"]} for p in pool]
+        return _address_pool_cache
+
+    return []
 
 
 # ── Lambda entry point (aws-wsgi bridges Flask WSGI → API Gateway) ───────────

@@ -8,6 +8,7 @@ package/
 .aws-build/
 .aws-packaged.yaml
 .aws-template-build.yaml
+.aws-sam/
 samconfig.toml
 samconfig.dev.toml
 
@@ -22,3 +23,18 @@ venv/
 .claude/
 .DS_Store
 Thumbs.db
+
+# Generated data / logs / temp files
+ada_conversation_log.txt
+ada_sessions_raw.json
+city_streets_*.json
+addresses_pool.json
+fleet_screen.jpg
+fuzzy_out.json
+fuzzy_payload.json
+get_index_out.json
+get_index_payload.json
+generate_addresses.log
+street_block.txt
+van_colorized_test.png
+van_icon.png
