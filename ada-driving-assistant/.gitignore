@@ -38,3 +38,7 @@ generate_addresses.log
 street_block.txt
 van_colorized_test.png
 van_icon.png
+
+# Local real-van GPS simulation output (gps_sim.py / position_to_s3.py)
+van_gps.csv
+van_position.json

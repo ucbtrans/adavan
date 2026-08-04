@@ -72,6 +72,48 @@ simulated fleet. Current version: **v3.6**.
   it was driving in reverse. `makeRealVanIcon` now flips the icon image 180° so it
   composes correctly with the heading rotation.
 
+## 8. Local GPS simulator (current, untagged)
+
+Replaces the precomputed-waypoint simulation as the way to exercise the feature
+without a van on the road. Rather than a table of coordinates inside the
+ingester, the simulation now enters the system where the hardware does, so
+everything downstream runs unmodified and is genuinely under test.
+
+- **`gps_sim.py`** stands in for the u-blox receiver. It drives the real street
+  geometry in `city_streets.json` and appends fixes to a rolling CSV with the
+  same columns `video_collection/video_capture.py` writes from `$GNGGA`
+  sentences, in the same raw `DDMM.MMMMM` form, at the same ~1 Hz. Blocks are
+  chosen by a weighted draw at each junction: heading continuity, a destination
+  1.5–4 km off (re-picked on arrival, like a delivery round), road class, and a
+  penalty for blocks just driven. One-way streets are only entered at their
+  first vertex. `--seed` makes a route repeatable.
+- **`position_to_s3.py`** is the desk-side `position_to_aws.py`: last valid row
+  → decimal degrees → street name → `van_position.json` → S3, once a minute.
+  Two differences from the van's copy — the street comes from a nearest-segment
+  search over `city_streets.json` rather than osmnx (no network call, no geo
+  stack, and the names match what the web app already serves), and the
+  hemisphere is read from the CSV's direction columns instead of assuming west.
+- Run both with one command: `python gps_sim.py --publish`. `--dry-run` builds
+  the payload without writing to S3; `--stop-every-min` exercises the
+  ingester's STATIONED path.
+- **Nothing else changed.** `ada-real-van-ingest` polls the feed in its ordinary
+  ACTIVE mode and the map animates via OSRM, exactly as it does for the physical
+  van. Tracking must be **Running** — the ingester no-ops while paused.
+
+**Routing had to be fixed twice.** The first pass excluded only the block the van
+arrived on, so at a junction it could take a different way heading straight back;
+on the real network it circled — 2.1 km driven for 273 m of progress, with
+once-a-minute samples 33 m apart, which reads on the map as a van jittering in
+place. Adding heading continuity and a destination raised the median minute to
+~504 m of the ~590 m possible at 22 mph. `tests/test_gps_sim.py` pins this down,
+along with the NMEA round-trip (worst case ~1 cm) and the published payload's
+four load-bearing keys.
+
+**Caveat:** `template.yaml` hard-codes one `REAL_VAN_URL` for every stack, so the
+simulator and the physical van share `van_position.json` — whichever writes last
+wins. Production is unaffected today only because it is still v2.3 and has no
+real-van feature at all. Give dev its own key before that changes.
+
 ## Infrastructure fixes along the way
 - **`deploy.sh` zip-path bug** — the manual step was uploading stale Lambda code
   (`../../` vs `../../../`); the API silently ran old code until fixed.
