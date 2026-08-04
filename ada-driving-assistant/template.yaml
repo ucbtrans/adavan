@@ -3,10 +3,13 @@ Transform: AWS::Serverless-2016-10-31
 Description: ADA Driving Assistant — API Lambda + simulation scheduler
 
 Parameters:
-  AnthropicApiKey:
+  AnthropicSsmParam:
     Type: String
-    NoEcho: true
-    Description: Anthropic API key (stored in Parameter Store after first deploy)
+    Default: /ada/anthropic-api-key
+    Description: >-
+      Name of the SecureString Parameter Store entry holding the Anthropic API
+      key. The key itself is never passed to CloudFormation — the Lambda reads
+      it at cold start.
   DataBucketName:
     Type: String
     Default: ada-driving-assistant
@@ -34,8 +37,12 @@ Globals:
         STREETS_KEY:       CA/Berkeley/city_streets.json
         SESSIONS_TABLE:    !Ref SessionsTable
         EVENTS_TABLE:      !Ref EventsTable
-        FLEET_TABLE:       !Ref FleetConfigTable
-        ANTHROPIC_API_KEY: !Ref AnthropicApiKey
+        ARCHIVE_TABLE:     !Ref EventsArchiveTable
+        HISTORY_TABLE:     !Ref ScheduleHistoryTable
+        FLEET_TABLE:       !Sub "ada-fleet-config${Suffix}"
+        REAL_VAN_TABLE:    !Sub "ada-real-van-positions${Suffix}"
+        REAL_VAN_URL:      "https://ada-van-service-data.s3.us-west-1.amazonaws.com/van_position.json"
+        ANTHROPIC_SSM_PARAM: !Ref AnthropicSsmParam
 
 Resources:
 
@@ -69,7 +76,11 @@ Resources:
         - DynamoDBCrudPolicy:
             TableName: !Ref EventsTable
         - DynamoDBCrudPolicy:
-            TableName: !Ref FleetConfigTable
+            TableName: !Ref EventsArchiveTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ScheduleHistoryTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref RealVanPositionsTable
         - S3ReadPolicy:
             BucketName: !Ref DataBucketName
         - Statement:
@@ -78,6 +89,26 @@ Resources:
                 - cloudwatch:GetMetricStatistics
                 - cloudwatch:ListMetrics
               Resource: "*"
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+                - dynamodb:DeleteItem
+                - dynamodb:Query
+                - dynamodb:Scan
+                - dynamodb:BatchWriteItem
+              Resource: !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/ada-fleet-config${Suffix}"
+            # Read the Anthropic key from Parameter Store at cold start.
+            - Effect: Allow
+              Action: ssm:GetParameter
+              Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${AnthropicSsmParam}"
+            - Effect: Allow
+              Action: kms:Decrypt
+              Resource: "*"
+              Condition:
+                StringEquals:
+                  kms:ViaService: !Sub "ssm.${AWS::Region}.amazonaws.com"
       Events:
         ApiProxy:
           Type: HttpApi
@@ -92,7 +123,7 @@ Resources:
             Path: /
             Method: GET
 
-  # ── Simulation Lambda (daily EventBridge cron) ──────────────────────────────
+  # ── Simulation Lambda (daily EventBridge cron at noon UTC) ─────────────────
   SimulationFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -105,8 +136,17 @@ Resources:
             BucketName: !Ref DataBucketName
         - DynamoDBCrudPolicy:
             TableName: !Ref EventsTable
-        - DynamoDBCrudPolicy:
-            TableName: !Ref FleetConfigTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+                - dynamodb:DeleteItem
+                - dynamodb:Query
+                - dynamodb:Scan
+                - dynamodb:BatchWriteItem
+              Resource: !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/ada-fleet-config${Suffix}"
       Events:
         DailySchedule:
           Type: Schedule
@@ -114,12 +154,65 @@ Resources:
             Schedule: cron(0 12 * * ? *)
             Name: !Sub "ada-daily-simulation${Suffix}"
             Description: Generate daily traffic events for all cities
+
+  # ── GC Lambda (midnight PT = 07:00 UTC) ─────────────────────────────────────
+  GcFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "ada-gc${Suffix}"
+      CodeUri: .
+      Handler: gc_function.handler
+      Timeout: 300
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref DataBucketName
+        - DynamoDBCrudPolicy:
+            TableName: !Ref EventsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref EventsArchiveTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ScheduleHistoryTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+                - dynamodb:DeleteItem
+                - dynamodb:Query
+                - dynamodb:Scan
+                - dynamodb:BatchWriteItem
+              Resource: !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/ada-fleet-config${Suffix}"
+      Events:
         MidnightPTSchedule:
           Type: Schedule
           Properties:
             Schedule: cron(0 7 * * ? *)
-            Name: !Sub "ada-midnight-pt-schedule${Suffix}"
-            Description: Generate fleet schedules at midnight Pacific time (07:00 UTC)
+            Name: !Sub "ada-midnight-pt-gc${Suffix}"
+            Description: Archive events + generate fleet schedules at midnight Pacific time
+
+  # ── Real van position ingester (EventBridge every 1 min) ────────────────────
+  RealVanIngestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "ada-real-van-ingest${Suffix}"
+      CodeUri: .
+      Handler: real_van_ingest.handler
+      Timeout: 60
+      MemorySize: 128
+      # Only one invocation at a time — overlapping runs would double-advance the
+      # simulation index and interleave out-of-order points (back-and-forth).
+      ReservedConcurrentExecutions: 1
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref RealVanPositionsTable
+      Events:
+        EveryMinute:
+          Type: Schedule
+          Properties:
+            Schedule: rate(1 minute)
+            Name: !Sub "ada-real-van-ingest-tick${Suffix}"
+            Description: Poll the real van GPS feed and record positions
 
   # ── DynamoDB events table ───────────────────────────────────────────────────
   EventsTable:
@@ -150,16 +243,51 @@ Resources:
         AttributeName: ttl
         Enabled: true
 
-  # ── DynamoDB fleet config table ─────────────────────────────────────────────
-  FleetConfigTable:
+  # ── DynamoDB events archive table ──────────────────────────────────────────
+  EventsArchiveTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: !Sub "ada-fleet-config${Suffix}"
+      TableName: !Sub "ada-events-archive${Suffix}"
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
-        - { AttributeName: config_key, AttributeType: S }
+        - { AttributeName: archive_date, AttributeType: S }
+        - { AttributeName: event_id,     AttributeType: S }
+        - { AttributeName: city,         AttributeType: S }
       KeySchema:
-        - { AttributeName: config_key, KeyType: HASH }
+        - { AttributeName: archive_date, KeyType: HASH }
+        - { AttributeName: event_id,     KeyType: RANGE }
+      GlobalSecondaryIndexes:
+        - IndexName: city-date-index
+          KeySchema:
+            - { AttributeName: city,         KeyType: HASH }
+            - { AttributeName: archive_date,  KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  # ── DynamoDB schedule history table ─────────────────────────────────────────
+  ScheduleHistoryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "ada-schedule-history${Suffix}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: van_id,   AttributeType: S }
+        - { AttributeName: date_seq, AttributeType: S }
+        - { AttributeName: date,     AttributeType: S }
+      KeySchema:
+        - { AttributeName: van_id,   KeyType: HASH }
+        - { AttributeName: date_seq, KeyType: RANGE }
+      GlobalSecondaryIndexes:
+        - IndexName: date-index
+          KeySchema:
+            - { AttributeName: date,   KeyType: HASH }
+            - { AttributeName: van_id, KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
 
   # ── DynamoDB sessions table ─────────────────────────────────────────────────
   SessionsTable:
@@ -173,6 +301,35 @@ Resources:
       KeySchema:
         - AttributeName: id
           KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  # ── DynamoDB fleet config table (active vans + per-van schedules) ───────────
+  FleetConfigTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "ada-fleet-config${Suffix}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: config_key
+          AttributeType: S
+      KeySchema:
+        - AttributeName: config_key
+          KeyType: HASH
+
+  # ── DynamoDB real van positions (time series, ~1h TTL) ──────────────────────
+  RealVanPositionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "ada-real-van-positions${Suffix}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: van_id, AttributeType: S }
+        - { AttributeName: ts,     AttributeType: S }
+      KeySchema:
+        - { AttributeName: van_id, KeyType: HASH }
+        - { AttributeName: ts,     KeyType: RANGE }
       TimeToLiveSpecification:
         AttributeName: ttl
         Enabled: true

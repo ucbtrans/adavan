@@ -7,10 +7,11 @@ interpolate van positions from wall-clock time without hitting routing APIs.
 """
 
 import json, math, os, random, time, logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import boto3
 import requests
+from boto3.dynamodb.conditions import Key as DKey
 
 logger = logging.getLogger(__name__)
 
@@ -25,15 +26,25 @@ MAX_JITTER_MIN = 60             # max window between rides
 OSRM_URL      = "http://router.project-osrm.org/route/v1/driving"
 OSRM_SLEEP    = 0.12            # seconds between OSRM calls (rate-limit)
 
+HISTORY_TABLE = os.environ.get("HISTORY_TABLE", "ada-schedule-history")
+
 # ── DynamoDB helpers ──────────────────────────────────────────────────────────
-_tbl = None
+_tbl      = None
+_hist_tbl = None
 
 def _table():
     global _tbl
     if _tbl is None:
-        ddb = boto3.resource("dynamodb")
+        ddb  = boto3.resource("dynamodb")
         _tbl = ddb.Table(os.environ.get("FLEET_TABLE", "ada-fleet-config"))
     return _tbl
+
+def _history_table():
+    global _hist_tbl
+    if _hist_tbl is None:
+        ddb       = boto3.resource("dynamodb")
+        _hist_tbl = ddb.Table(HISTORY_TABLE)
+    return _hist_tbl
 
 def van_id(n: int) -> str:      # n is 1-based
     return f"VAN_{n:02d}"
@@ -279,6 +290,77 @@ def set_active_vans(nums: list):
         "config_key": ACTIVE_VANS_KEY,
         "van_nums":   json.dumps(sorted(int(n) for n in nums)),
     })
+
+# ── Schedule history ──────────────────────────────────────────────────────────
+
+def compute_completed_rides(schedule: dict, pt_minute: float) -> list:
+    """Return list of ride seq numbers whose dropoff_min <= pt_minute."""
+    return [r["seq"] for r in schedule.get("rides", []) if r.get("dropoff_min", 9999) <= pt_minute]
+
+def save_schedule_history(van_id: str, date_str: str, event_type: str,
+                          schedule: dict, completed_rides: list,
+                          active_from_ride_seq, deletion_timestamp=None) -> None:
+    """Append a new versioned entry to ada-schedule-history for this van+date."""
+    hist = _history_table()
+    # Find current max seq for this van+date
+    resp = hist.query(
+        KeyConditionExpression=DKey("van_id").eq(van_id) & DKey("date_seq").begins_with(date_str),
+        ProjectionExpression="date_seq",
+        ScanIndexForward=False,
+        Limit=1,
+    )
+    items    = resp.get("Items", [])
+    next_seq = 0
+    if items:
+        try:
+            next_seq = int(items[0]["date_seq"].split("#")[2]) + 1
+        except Exception:
+            pass
+
+    ttl = int((datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+               + timedelta(days=8)).timestamp())
+
+    item = _dynamo_encode({
+        "van_id":               van_id,
+        "date_seq":             f"{date_str}#{next_seq:04d}",
+        "date":                 date_str,
+        "seq":                  next_seq,
+        "event_type":           event_type,
+        "timestamp":            datetime.now(timezone.utc).isoformat(),
+        "schedule":             schedule,
+        "completed_rides":      completed_rides,
+        "active_from_ride_seq": active_from_ride_seq,
+        "deletion_timestamp":   deletion_timestamp,
+        "ttl":                  ttl,
+    })
+    hist.put_item(Item=item)
+
+def get_schedule_history_for_date(date_str: str) -> dict:
+    """
+    Query the date-index GSI to get all history entries for every van on a given date.
+    Returns {van_id: [sorted history entries]}.
+    """
+    hist   = _history_table()
+    result: dict = {}
+    kwargs = {
+        "IndexName": "date-index",
+        "KeyConditionExpression": DKey("date").eq(date_str),
+    }
+    while True:
+        resp  = hist.query(**kwargs)
+        for item in resp.get("Items", []):
+            v   = item["van_id"]
+            dec = _dynamo_decode(item)
+            result.setdefault(v, []).append(dec)
+        lek = resp.get("LastEvaluatedKey")
+        if not lek:
+            break
+        kwargs["ExclusiveStartKey"] = lek
+
+    # Sort each van's entries by date_seq (= date#0000, date#0001, …)
+    for v in result:
+        result[v].sort(key=lambda e: e.get("date_seq", ""))
+    return result
 
 # ── Decimal conversion ────────────────────────────────────────────────────────
 def _dynamo_encode(obj):

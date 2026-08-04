@@ -147,11 +147,18 @@ def _generate_fleet_schedules(s3, now: datetime) -> dict:
         return {"error": str(exc)}
 
     generated, errors = [], []
-    for i in range(1, sched_mod.NUM_VANS + 1):
+    for i in sched_mod.get_active_vans():
         v_id = sched_mod.van_id(i)
         try:
             s = sched_mod.generate_van_schedule(v_id, pt_date, pool)
             sched_mod.save_schedule(s)
+            try:
+                sched_mod.save_schedule_history(
+                    van_id=v_id, date_str=pt_date, event_type="generated",
+                    schedule=s, completed_rides=[], active_from_ride_seq=1,
+                )
+            except Exception as he:
+                logger.warning("History save failed for %s: %s", v_id, he)
             generated.append(v_id)
             logger.info("Generated schedule for %s on %s", v_id, pt_date)
         except Exception as exc:

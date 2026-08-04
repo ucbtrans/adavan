@@ -116,10 +116,12 @@ def _gh_decode_bbox(h: str):
             is_lon = not is_lon
     return (lat_lo + lat_hi) / 2, (lon_lo + lon_hi) / 2, (lat_hi - lat_lo) / 2, (lon_hi - lon_lo) / 2
 
-EVENTS_TABLE = os.environ.get("EVENTS_TABLE", "ada-events")
+EVENTS_TABLE  = os.environ.get("EVENTS_TABLE",  "ada-events")
+ARCHIVE_TABLE = os.environ.get("ARCHIVE_TABLE", "ada-events-archive")
 
-_ddb    = None   # lazy singleton
-_table  = None
+_ddb           = None   # lazy singleton
+_table         = None
+_archive_table = None
 
 
 def _get_table():
@@ -128,6 +130,15 @@ def _get_table():
         _ddb   = boto3.resource("dynamodb")
         _table = _ddb.Table(EVENTS_TABLE)
     return _table
+
+
+def _get_archive_table():
+    global _ddb, _archive_table
+    if _archive_table is None:
+        if _ddb is None:
+            _ddb = boto3.resource("dynamodb")
+        _archive_table = _ddb.Table(ARCHIVE_TABLE)
+    return _archive_table
 
 
 # ── Type conversion ──────────────────────────────────────────────────────────
@@ -360,7 +371,7 @@ def clear_event(street: str, event_id: str, now_iso: str) -> None:
     )
 
 
-# ── Garbage collection ───────────────────────────────────────────────────────
+# ── Garbage collection (live table) ──────────────────────────────────────────
 
 def delete_stale_events(days: int = 7) -> int:
     """
@@ -391,3 +402,122 @@ def delete_stale_events(days: int = 7) -> int:
         kwargs["ExclusiveStartKey"] = lek
 
     return deleted
+
+
+# ── Archive (midnight GC) ─────────────────────────────────────────────────────
+
+def _pt_date_of_event(item: dict) -> str:
+    """Return the PT calendar date string for when an event was active."""
+    try:
+        ts = datetime.fromisoformat(str(item["active_at"]).replace("Z", "+00:00"))
+        pt = ts - timedelta(hours=7)
+        return pt.strftime("%Y-%m-%d")
+    except Exception:
+        return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def archive_events_to_date(archive_date: str, pt_midnight_utc: datetime) -> dict:
+    """
+    Called at midnight PT for the just-completed day (archive_date = yesterday PT).
+
+    For every event in ada-events:
+      - Write a copy to ada-events-archive keyed by archive_date.
+      - If inactive_at < pt_midnight_utc the event has expired → delete from ada-events.
+      - If inactive_at >= pt_midnight_utc it's still live → keep in ada-events.
+
+    Returns counts: {archived, deleted_from_live, kept_in_live}.
+    """
+    live_table    = _get_table()
+    archive_table = _get_archive_table()
+    now_iso       = pt_midnight_utc.isoformat()
+
+    ttl_cutoff = int(
+        (datetime.strptime(archive_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+         + timedelta(days=8)).timestamp()
+    )
+
+    archived = kept = deleted = 0
+    kwargs: dict[str, Any] = {}
+
+    while True:
+        resp  = live_table.scan(**kwargs)
+        items = resp.get("Items", [])
+
+        to_delete: list[dict] = []
+        with archive_table.batch_writer() as abatch:
+            for item in items:
+                event_pt_date = _pt_date_of_event(item)
+                # Copy to archive — idempotent via condition
+                archive_item = dict(item)
+                archive_item["archive_date"] = event_pt_date
+                archive_item["archived_at"]  = now_iso
+                archive_item["was_active_at_gc"] = str(item.get("inactive_at", "")) >= now_iso
+                archive_item["ttl"] = ttl_cutoff
+                try:
+                    abatch.put_item(Item=_floats_to_decimal(archive_item))
+                    archived += 1
+                except Exception:
+                    pass
+
+                # Expire check: delete from live if inactive before midnight
+                if str(item.get("inactive_at", "9999")) < now_iso:
+                    to_delete.append({"street": item["street"], "event_id": item["event_id"]})
+
+        if to_delete:
+            with live_table.batch_writer() as lbatch:
+                for key in to_delete:
+                    lbatch.delete_item(Key=key)
+            deleted += len(to_delete)
+            kept    += len(items) - len(to_delete)
+        else:
+            kept += len(items)
+
+        lek = resp.get("LastEvaluatedKey")
+        if not lek:
+            break
+        kwargs["ExclusiveStartKey"] = lek
+
+    return {"archived": archived, "deleted_from_live": deleted, "kept_in_live": kept}
+
+
+def gc_archive_table(days: int = 7) -> int:
+    """Delete archive items where archive_date < today - days. Returns deleted count."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=7) - timedelta(days=days)).strftime("%Y-%m-%d")
+    table  = _get_archive_table()
+    deleted = 0
+
+    kwargs: dict[str, Any] = {
+        "FilterExpression": Attr("archive_date").lt(cutoff),
+        "ProjectionExpression": "archive_date, event_id",
+    }
+    while True:
+        resp  = table.scan(**kwargs)
+        items = resp.get("Items", [])
+        if items:
+            with table.batch_writer() as batch:
+                for item in items:
+                    batch.delete_item(Key={"archive_date": item["archive_date"], "event_id": item["event_id"]})
+            deleted += len(items)
+        lek = resp.get("LastEvaluatedKey")
+        if not lek:
+            break
+        kwargs["ExclusiveStartKey"] = lek
+    return deleted
+
+
+def get_archive_events_for_date(archive_date: str) -> list[dict]:
+    """Query ada-events-archive for all events on a given PT date (for replay API)."""
+    table  = _get_archive_table()
+    result = []
+    kwargs = {
+        "KeyConditionExpression": Key("archive_date").eq(archive_date),
+    }
+    while True:
+        resp = table.query(**kwargs)
+        for item in resp.get("Items", []):
+            result.append(dynamo_to_event(item))
+        lek = resp.get("LastEvaluatedKey")
+        if not lek:
+            break
+        kwargs["ExclusiveStartKey"] = lek
+    return result

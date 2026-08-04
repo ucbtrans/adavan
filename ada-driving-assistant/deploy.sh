@@ -30,7 +30,7 @@ if [[ "$ENV" == "dev" ]]; then
   SAM_CONFIG="samconfig.dev.toml"
   API_FUNCTION="ada-api-dev"
   SIM_FUNCTION="ada-simulation-dev"
-  VERSION_LABEL="v3.0"
+  VERSION_LABEL="v3.6"
 else
   STACK_NAME="ada-driving-assistant"
   SAM_CONFIG="samconfig.toml"
@@ -60,8 +60,29 @@ echo "    Using SAM: $SAM"
 # shellcheck disable=SC2206
 SAM_CMD=($SAM)
 
+# Remove the previous lambda.zip first: CodeUri is "." so sam build copies the
+# whole project into each function's build dir. Left in place, the old zip gets
+# nested into the new build and the package grows every deploy.
+echo "==> Removing stale lambda.zip before build..."
+rm -f lambda.zip
+
 echo "==> Building Lambda package..."
 "${SAM_CMD[@]}" build
+
+# sam build does NOT honor .samignore — it copies everything under CodeUri.
+# Strip files the Lambdas never use at runtime (data JSONs are pulled from S3,
+# images are served from S3/CloudFront, scripts/logs are dev-only) so the
+# deployed package stays small.
+echo "==> Pruning non-runtime files from build directories..."
+for d in .aws-sam/build/*/; do
+  [[ -d "$d" ]] || continue
+  rm -f "$d"lambda*.zip \
+        "$d"city_streets*.json "$d"stop_signs.json "$d"traffic_signals.json \
+        "$d"addresses_pool.json "$d"ada_sessions_raw.json "$d"sessions.json \
+        "$d"*.png "$d"*.jpg "$d"*.jpeg \
+        "$d"ada_conversation_log.txt "$d"street_block.txt "$d"generate_addresses.log \
+        "$d"fuzzy_*.json "$d"get_index_*.json 2>/dev/null || true
+done
 
 echo "==> Deploying stack: $STACK_NAME"
 if [[ "$GUIDED" == "true" ]] || [[ ! -f "$SAM_CONFIG" ]]; then
@@ -105,9 +126,12 @@ for f in app.py assistant.py detections_adapter.py events.py fetch_streets.py \
   [[ -f "$f" ]] && cp "$f" "$SAM_BUILD_API/$f"
   [[ -f "$f" ]] && cp "$f" "$SAM_BUILD_SIM/$f"
 done
-(cd "$SAM_BUILD_API" && python -m zipfile -c ../../lambda.zip .) 2>/dev/null || \
-(cd "$SAM_BUILD_API" && python3 -m zipfile -c ../../lambda.zip .) || \
-(cd "$SAM_BUILD_API" && py -m zipfile -c ../../lambda.zip .)
+# Zip from inside the build dir to the project root. ApiFunction is three
+# levels deep (.aws-sam/build/ApiFunction), so the root is ../../../.
+# A relative path avoids MSYS/Windows path-conversion issues with absolute paths.
+(cd "$SAM_BUILD_API" && python -m zipfile -c ../../../lambda.zip .) 2>/dev/null || \
+(cd "$SAM_BUILD_API" && python3 -m zipfile -c ../../../lambda.zip .) || \
+(cd "$SAM_BUILD_API" && py -m zipfile -c ../../../lambda.zip .)
 echo "    lambda.zip: $(ls -lh lambda.zip | awk '{print $5}')"
 
 # Package is >70MB — upload via S3 first
@@ -166,6 +190,9 @@ aws s3 cp static/ada_logo.jpg \
 aws s3 cp van_top2.png \
   "s3://$WEB_BUCKET_V2/van_top.png" \
   --content-type "image/png"
+aws s3 cp van_real.png \
+  "s3://$WEB_BUCKET_V2/van_real.png" \
+  --content-type "image/png"
 
 if [[ -f "addresses_pool.json" ]]; then
   echo "==> Uploading addresses_pool.json to s3://$WEB_BUCKET_V2..."
@@ -191,6 +218,9 @@ if [[ "$ENV" == "prod" ]]; then
     --content-type "image/jpeg"
   aws s3 cp van_top2.png \
     "s3://$V1_BUCKET/van_top.png" \
+    --content-type "image/png"
+  aws s3 cp van_real.png \
+    "s3://$V1_BUCKET/van_real.png" \
     --content-type "image/png"
   if [[ -f "addresses_pool.json" ]]; then
     aws s3 cp addresses_pool.json \

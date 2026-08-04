@@ -1,0 +1,205 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1820" height="1000" viewBox="0 0 1820 1000" font-family="Segoe UI, system-ui, -apple-system, Helvetica Neue, Arial, sans-serif">
+  <defs>
+    <marker id="aSlate" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#64748b"/>
+    </marker>
+    <marker id="aBlue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2563eb"/>
+    </marker>
+    <marker id="aAmber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#d97706"/>
+    </marker>
+    <marker id="aViolet" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#7c3aed"/>
+    </marker>
+  </defs>
+
+  <rect width="1820" height="1000" fill="#ffffff"/>
+
+  <!-- ===== Title ===== -->
+  <text x="40" y="58" font-size="30" font-weight="700" fill="#0f172a">How the ADA simulation works</text>
+  <text x="40" y="88" font-size="16" fill="#64748b">A simulated fleet and the real van drive the same map and share one event store — with different permissions.</text>
+
+  <!-- ===== SIMULATED LANE ===== -->
+  <rect x="40" y="130" width="1040" height="290" rx="16" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1.5"/>
+  <rect x="64" y="150" width="196" height="30" rx="15" fill="#2563eb"/>
+  <text x="162" y="170" font-size="13" font-weight="700" fill="#ffffff" text-anchor="middle" letter-spacing="1.2">SIMULATED FLEET</text>
+
+  <!-- B1 -->
+  <rect x="70" y="200" width="210" height="170" rx="12" fill="#ffffff" stroke="#2563eb" stroke-width="1.5"/>
+  <circle cx="96" cy="226" r="13" fill="#2563eb"/>
+  <text x="96" y="231" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">1</text>
+  <text x="86" y="262" font-size="16" font-weight="700" fill="#0f172a">Schedule upload</text>
+  <text x="86" y="292" font-size="13" fill="#475569">The user uploads a</text>
+  <text x="86" y="310" font-size="13" fill="#475569">schedule of addresses</text>
+  <text x="86" y="328" font-size="13" fill="#475569">with times for each</text>
+  <text x="86" y="346" font-size="13" fill="#475569">simulated van.</text>
+
+  <!-- B2 -->
+  <rect x="336" y="200" width="210" height="170" rx="12" fill="#ffffff" stroke="#2563eb" stroke-width="1.5"/>
+  <circle cx="362" cy="226" r="13" fill="#2563eb"/>
+  <text x="362" y="231" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">2</text>
+  <text x="352" y="262" font-size="16" font-weight="700" fill="#0f172a">Fleet drives</text>
+  <text x="352" y="280" font-size="16" font-weight="700" fill="#0f172a">the schedule</text>
+  <text x="352" y="310" font-size="13" fill="#475569">Vans drive address to</text>
+  <text x="352" y="328" font-size="13" fill="#475569">address on schedule;</text>
+  <text x="352" y="346" font-size="13" fill="#475569">positions hit the map.</text>
+
+  <!-- B3 -->
+  <rect x="602" y="200" width="210" height="170" rx="12" fill="#ffffff" stroke="#2563eb" stroke-width="1.5"/>
+  <circle cx="628" cy="226" r="13" fill="#2563eb"/>
+  <text x="628" y="231" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">3</text>
+  <text x="618" y="262" font-size="16" font-weight="700" fill="#0f172a">Per-block sweep</text>
+  <text x="618" y="292" font-size="13" fill="#475569">On every block a van</text>
+  <text x="618" y="310" font-size="13" fill="#475569">checks each simulated</text>
+  <text x="618" y="328" font-size="13" fill="#475569">event and deletes it on</text>
+  <text x="618" y="346" font-size="13" fill="#475569">expiry or by probability.</text>
+
+  <!-- RULE (guard) -->
+  <rect x="868" y="200" width="180" height="170" rx="12" fill="#fef2f2" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <circle cx="894" cy="226" r="13" fill="#dc2626"/>
+  <text x="894" y="232" font-size="15" font-weight="700" fill="#ffffff" text-anchor="middle">!</text>
+  <text x="884" y="262" font-size="16" font-weight="700" fill="#991b1b">Hard limit</text>
+  <text x="884" y="292" font-size="12.5" fill="#7f1d1d">A simulated van may</text>
+  <text x="884" y="310" font-size="12.5" fill="#7f1d1d">never remove or alter</text>
+  <text x="884" y="328" font-size="12.5" fill="#7f1d1d">a real event made by</text>
+  <text x="884" y="346" font-size="12.5" fill="#7f1d1d">the real van.</text>
+
+  <!-- in-lane arrows -->
+  <path d="M280,285 H330" stroke="#2563eb" stroke-width="2" fill="none" marker-end="url(#aBlue)"/>
+  <path d="M546,285 H596" stroke="#2563eb" stroke-width="2" fill="none" marker-end="url(#aBlue)"/>
+  <path d="M812,285 H862" stroke="#2563eb" stroke-width="2" fill="none" marker-end="url(#aBlue)"/>
+
+  <!-- ===== MIDDLE NOTE ===== -->
+  <rect x="40" y="470" width="1040" height="80" rx="12" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="7 5"/>
+  <text x="560" y="502" font-size="15" fill="#334155" text-anchor="middle">Both fleets read and write the same event store — the difference is what each is allowed to change.</text>
+  <text x="560" y="526" font-size="13.5" fill="#64748b" text-anchor="middle">Simulated vans only tidy up their own objects; the real van is the source of truth.</text>
+
+  <!-- ===== REAL LANE ===== -->
+  <rect x="40" y="600" width="1040" height="290" rx="16" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1.5"/>
+  <rect x="64" y="620" width="140" height="30" rx="15" fill="#d97706"/>
+  <text x="134" y="640" font-size="13" font-weight="700" fill="#ffffff" text-anchor="middle" letter-spacing="1.2">REAL VAN</text>
+
+  <!-- B4 -->
+  <rect x="70" y="670" width="210" height="170" rx="12" fill="#ffffff" stroke="#d97706" stroke-width="1.5"/>
+  <circle cx="96" cy="696" r="13" fill="#d97706"/>
+  <text x="96" y="701" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">4</text>
+  <text x="86" y="732" font-size="16" font-weight="700" fill="#0f172a">Real van reports in</text>
+  <text x="86" y="762" font-size="13" fill="#475569">The physical van drives</text>
+  <text x="86" y="780" font-size="13" fill="#475569">and reports its own</text>
+  <text x="86" y="798" font-size="13" fill="#475569">location, shown live on</text>
+  <text x="86" y="816" font-size="13" fill="#475569">the same map.</text>
+
+  <!-- B5a -->
+  <rect x="336" y="670" width="210" height="170" rx="12" fill="#ffffff" stroke="#d97706" stroke-width="1.5"/>
+  <circle cx="362" cy="696" r="13" fill="#d97706"/>
+  <text x="362" y="701" font-size="12" font-weight="700" fill="#ffffff" text-anchor="middle">5a</text>
+  <text x="352" y="732" font-size="16" font-weight="700" fill="#0f172a">Clear simulated</text>
+  <text x="352" y="750" font-size="16" font-weight="700" fill="#0f172a">objects</text>
+  <text x="352" y="780" font-size="13" fill="#475569">On the blocks it covers</text>
+  <text x="352" y="798" font-size="13" fill="#475569">it removes every object</text>
+  <text x="352" y="816" font-size="13" fill="#475569">left by simulated vans.</text>
+
+  <!-- B5b -->
+  <rect x="602" y="670" width="210" height="170" rx="12" fill="#ffffff" stroke="#d97706" stroke-width="1.5"/>
+  <circle cx="628" cy="696" r="13" fill="#d97706"/>
+  <text x="628" y="701" font-size="12" font-weight="700" fill="#ffffff" text-anchor="middle">5b</text>
+  <text x="618" y="732" font-size="16" font-weight="700" fill="#0f172a">Record real events</text>
+  <text x="618" y="762" font-size="13" fill="#475569">It identifies the actual</text>
+  <text x="618" y="780" font-size="13" fill="#475569">objects and events</text>
+  <text x="618" y="798" font-size="13" fill="#475569">around it and adds them</text>
+  <text x="618" y="816" font-size="13" fill="#475569">to the database.</text>
+
+  <!-- AUTHORITY -->
+  <rect x="868" y="670" width="180" height="170" rx="12" fill="#fffbeb" stroke="#d97706" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <circle cx="894" cy="696" r="13" fill="#d97706"/>
+  <text x="894" y="702" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">&#10003;</text>
+  <text x="884" y="732" font-size="16" font-weight="700" fill="#92400e">Ground truth</text>
+  <text x="884" y="762" font-size="12.5" fill="#78350f">Real events outrank</text>
+  <text x="884" y="780" font-size="12.5" fill="#78350f">simulated ones, and</text>
+  <text x="884" y="798" font-size="12.5" fill="#78350f">only the real van may</text>
+  <text x="884" y="816" font-size="12.5" fill="#78350f">edit them.</text>
+
+  <path d="M280,755 H330" stroke="#d97706" stroke-width="2" fill="none" marker-end="url(#aAmber)"/>
+  <path d="M546,755 H596" stroke="#d97706" stroke-width="2" fill="none" marker-end="url(#aAmber)"/>
+  <path d="M812,755 H862" stroke="#d97706" stroke-width="2" fill="none" marker-end="url(#aAmber)"/>
+
+  <!-- ===== LEGEND ===== -->
+  <rect x="1330" y="160" width="270" height="150" rx="12" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1.5"/>
+  <text x="1350" y="186" font-size="11" font-weight="700" fill="#94a3b8" letter-spacing="1.2">LEGEND</text>
+  <path d="M1350,214 H1388" stroke="#2563eb" stroke-width="2" fill="none" marker-end="url(#aBlue)"/>
+  <text x="1404" y="219" font-size="12.5" fill="#475569">sequence of steps</text>
+  <path d="M1352,248 H1386" stroke="#64748b" stroke-width="2" fill="none"
+        marker-start="url(#aSlate)" marker-end="url(#aSlate)"/>
+  <text x="1404" y="253" font-size="12.5" fill="#475569">database read / write</text>
+  <path d="M1350,282 H1388" stroke="#2563eb" stroke-width="2" fill="none"
+        stroke-dasharray="7 5" marker-end="url(#aBlue)"/>
+  <text x="1404" y="287" font-size="12.5" fill="#475569">drawn on the fleet map</text>
+
+  <!-- ===== EVENT DATABASE ===== -->
+  <rect x="1200" y="330" width="250" height="380" rx="16" fill="#ffffff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="1220" y="372" font-size="18" font-weight="700" fill="#0f172a">Event database</text>
+  <text x="1220" y="394" font-size="13" fill="#64748b">one shared store</text>
+
+  <rect x="1220" y="414" width="210" height="100" rx="10" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <rect x="1236" y="432" width="12" height="12" rx="2" fill="#2563eb"/>
+  <text x="1256" y="443" font-size="14" font-weight="700" fill="#1e40af">Simulated events</text>
+  <text x="1236" y="466" font-size="12.5" fill="#475569">Created and deleted by</text>
+  <text x="1236" y="483" font-size="12.5" fill="#475569">the simulated vans.</text>
+  <text x="1236" y="500" font-size="12.5" fill="#475569">Wiped by the real van.</text>
+
+  <rect x="1220" y="530" width="210" height="100" rx="10" fill="#fff7ed" stroke="#fed7aa" stroke-width="1.5"/>
+  <rect x="1236" y="548" width="12" height="12" rx="2" fill="#d97706"/>
+  <text x="1256" y="559" font-size="14" font-weight="700" fill="#9a3412">Real events</text>
+  <text x="1236" y="582" font-size="12.5" fill="#475569">Only the real van may</text>
+  <text x="1236" y="599" font-size="12.5" fill="#475569">create, alter or delete</text>
+  <text x="1236" y="616" font-size="12.5" fill="#475569">these.</text>
+
+  <text x="1220" y="656" font-size="12.5" fill="#64748b">Every event carries an expiry;</text>
+  <text x="1220" y="674" font-size="12.5" fill="#64748b">the map shows it until then.</text>
+
+  <!-- ===== FLEET MAP ===== -->
+  <rect x="1510" y="360" width="270" height="320" rx="16" fill="#ffffff" stroke="#0d9488" stroke-width="2"/>
+  <text x="1530" y="402" font-size="18" font-weight="700" fill="#0f172a">Fleet map</text>
+  <text x="1530" y="424" font-size="13" fill="#64748b">what the user sees</text>
+
+  <circle cx="1538" cy="456" r="5" fill="#2563eb"/>
+  <text x="1554" y="461" font-size="14" fill="#334155">Simulated van positions</text>
+  <circle cx="1538" cy="492" r="5" fill="#d97706"/>
+  <text x="1554" y="497" font-size="14" fill="#334155">Real van live marker</text>
+  <circle cx="1538" cy="528" r="5" fill="#7c3aed"/>
+  <text x="1554" y="533" font-size="14" fill="#334155">Events from the database</text>
+  <text x="1554" y="551" font-size="12.5" fill="#64748b">shown until they expire</text>
+
+  <rect x="1530" y="580" width="230" height="80" rx="8" fill="#f0fdfa" stroke="#99f6e4" stroke-width="1.5"/>
+  <path d="M1540,606 H1750 M1540,634 H1750 M1600,588 V652 M1680,588 V652" stroke="#a7f3d0" stroke-width="3" fill="none"/>
+  <circle cx="1570" cy="606" r="5" fill="#2563eb"/>
+  <circle cx="1640" cy="634" r="5" fill="#2563eb"/>
+  <circle cx="1712" cy="606" r="5" fill="#d97706"/>
+  <rect x="1617" y="617" width="7" height="7" rx="1.5" fill="#7c3aed"/>
+  <rect x="1697" y="637" width="7" height="7" rx="1.5" fill="#7c3aed"/>
+
+  <!-- ===== CONNECTIONS ===== -->
+  <!-- simulated fleet <-> database -->
+  <path d="M1048,285 H1305 Q1325,285 1325,305 V322" stroke="#64748b" stroke-width="2" fill="none"
+        marker-start="url(#aSlate)" marker-end="url(#aSlate)"/>
+  <text x="1176" y="275" font-size="12.5" fill="#475569" text-anchor="middle">reads the block, deletes simulated only</text>
+
+  <!-- real van <-> database -->
+  <path d="M1048,755 H1305 Q1325,755 1325,735 V718" stroke="#64748b" stroke-width="2" fill="none"
+        marker-start="url(#aSlate)" marker-end="url(#aSlate)"/>
+  <text x="1176" y="777" font-size="12.5" fill="#475569" text-anchor="middle">clears simulated, inserts real events</text>
+
+  <!-- database -> map -->
+  <path d="M1450,520 H1496" stroke="#7c3aed" stroke-width="2.5" fill="none" marker-end="url(#aViolet)"/>
+
+  <!-- simulated positions -> map (top route) -->
+  <path d="M441,200 V138 Q441,118 461,118 H1625 Q1645,118 1645,138 V346" stroke="#2563eb" stroke-width="2"
+        fill="none" stroke-dasharray="7 5" marker-end="url(#aBlue)"/>
+  <text x="1010" y="108" font-size="12.5" fill="#2563eb" text-anchor="middle">simulated van positions</text>
+
+  <!-- real position -> map (bottom route) -->
+  <path d="M175,840 V902 Q175,922 195,922 H1625 Q1645,922 1645,902 V694" stroke="#d97706" stroke-width="2"
+        fill="none" stroke-dasharray="7 5" marker-end="url(#aAmber)"/>
+  <text x="1010" y="912" font-size="12.5" fill="#d97706" text-anchor="middle">real van live position</text>
+</svg>

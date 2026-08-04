@@ -8,12 +8,36 @@ Two entry points:
 
 from __future__ import annotations
 
+import functools
 import os
 from dotenv import load_dotenv
 from anthropic import Anthropic
 
 load_dotenv()
-client = Anthropic()
+
+
+@functools.lru_cache(maxsize=1)
+def _api_key() -> str | None:
+    """Resolve the Anthropic key, preferring Parameter Store over the environment.
+
+    In AWS the Lambda carries only ANTHROPIC_SSM_PARAM — the name of a
+    SecureString parameter — so the key itself never sits in the template, the
+    CloudFormation parameter history, or the function's environment. Locally
+    .env supplies ANTHROPIC_API_KEY and we let the SDK pick it up itself.
+    """
+    param = os.environ.get("ANTHROPIC_SSM_PARAM")
+    if not param:
+        return None
+
+    import boto3
+    ssm = boto3.client("ssm")
+    return ssm.get_parameter(Name=param, WithDecryption=True)["Parameter"]["Value"]
+
+
+@functools.lru_cache(maxsize=1)
+def _client() -> Anthropic:
+    """Anthropic client, built on first use and reused for the container's life."""
+    return Anthropic(api_key=_api_key())
 
 # ── Shared helpers ────────────────────────────────────────────────────────────
 
@@ -84,7 +108,7 @@ def get_advisory(position: dict, detections: list[dict]) -> str:
     else:
         lines.append("No hazards detected.")
 
-    msg = client.messages.create(
+    msg = _client().messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=256,
         system=_ADVISORY_SYSTEM,
@@ -254,7 +278,7 @@ def answer_question(question: str,
 
     # Pass address as user_id so calls are labelled in the Anthropic Console
     address_tag = location.get("address", "unknown")[:512]
-    msg = client.messages.create(
+    msg = _client().messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=512,
         system=_QA_SYSTEM,

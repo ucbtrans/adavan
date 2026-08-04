@@ -1,3 +1,9 @@
+# NOTE: `sam build` does NOT honor this file — it copies the entire CodeUri.
+# The authoritative exclusion happens in deploy.sh, which removes lambda.zip
+# before building and prunes these files from the build dirs afterward. Keep
+# this list in sync with that prune step. (This file still applies to sam
+# flows that do respect it, e.g. `sam sync`.)
+
 # Secrets
 .env
 sessions.json

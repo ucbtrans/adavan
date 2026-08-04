@@ -1,0 +1,21 @@
+# Normalize line endings: store text as LF in the repo, auto-detect on checkin
+* text=auto eol=lf
+
+# Source / config — always LF
+*.py     text eol=lf
+*.sh     text eol=lf
+*.toml   text eol=lf
+*.yaml   text eol=lf
+*.yml    text eol=lf
+*.json   text eol=lf
+*.html   text eol=lf
+*.txt    text eol=lf
+*.ini    text eol=lf
+*.md     text eol=lf
+
+# Binary assets — never normalize or diff as text
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.zip    binary
+*.docx   binary

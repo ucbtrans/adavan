@@ -8,17 +8,20 @@ import os
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from urllib.parse import parse_qs
 
 import boto3
+import requests
+from boto3.dynamodb.conditions import Key
 from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request, send_from_directory
 
 import sessions as sess
 import schedule as sched_mod
 from assistant import answer_question
-from events import (clear_event, event_lat_lon, get_events_by_city,
-                    get_events_by_street, get_events_near, put_event)
+from events import (clear_event, event_lat_lon, get_archive_events_for_date,
+                    get_events_by_city, get_events_by_street, get_events_near, put_event)
 from location import (find_nearby_objects, find_objects_on_street,
                       find_street_suggestions, find_streets_mentioned,
                       geocode_address, object_center, random_location)
@@ -80,6 +83,14 @@ def serve_logo():
     return send_from_directory(
         os.path.dirname(os.path.abspath(__file__)),
         "ada_logo.jpg", mimetype="image/jpeg"
+    )
+
+
+@app.route("/van_real.png")
+def serve_real_van_icon():
+    return send_from_directory(
+        os.path.dirname(os.path.abspath(__file__)),
+        "van_real.png", mimetype="image/png"
     )
 
 
@@ -558,6 +569,248 @@ def api_fleet_get():
         return jsonify({"error": str(exc)}), 500
 
 
+# Live position feed for the real (physical) van. Server-side proxy so the
+# browser isn't blocked by the source bucket's missing CORS headers.
+REAL_VAN_URL = os.environ.get(
+    "REAL_VAN_URL",
+    "https://ada-van-service-data.s3.us-west-1.amazonaws.com/van_position.json",
+)
+
+
+@app.route("/api/fleet/real-van")
+def api_fleet_real_van():
+    """GET /api/fleet/real-van — current GPS position of the real van."""
+    try:
+        resp = requests.get(REAL_VAN_URL, timeout=5)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as exc:
+        return jsonify({"error": f"upstream fetch failed: {exc}"}), 502
+    lat = data.get("Latitude")
+    lon = data.get("Longitude")
+    if lat is None or lon is None:
+        return jsonify({"error": "position unavailable"}), 404
+    return jsonify({
+        "lat":    lat,
+        "lon":    lon,
+        "street": data.get("Street", ""),
+        "time":   data.get("Time", ""),
+    })
+
+
+REAL_VAN_TABLE = os.environ.get("REAL_VAN_TABLE", "ada-real-van-positions")
+
+
+@app.route("/api/fleet/real-van/history")
+def api_fleet_real_van_history():
+    """GET /api/fleet/real-van/history?van_id=&mins= — recorded position track."""
+    van_id = request.args.get("van_id", "real-1")
+    try:
+        mins = max(1, min(180, int(request.args.get("mins", 60))))
+    except ValueError:
+        mins = 60
+    from_ts = (datetime.now(timezone.utc) - timedelta(minutes=mins)
+               ).isoformat().replace("+00:00", "Z")
+    try:
+        table = boto3.resource("dynamodb").Table(REAL_VAN_TABLE)
+        resp = table.query(
+            KeyConditionExpression=Key("van_id").eq(van_id)
+            & Key("ts").between(from_ts, "99999999"),
+        )
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+    points = []
+    for it in resp.get("Items", []):
+        if it.get("ts") == "STATE":
+            continue
+        points.append({
+            "ts":      it["ts"],
+            "lat":     float(it["lat"]),
+            "lon":     float(it["lon"]),
+            "street":  it.get("street", ""),
+            "moving":  bool(it.get("moving", False)),
+            "dist_m":  float(it.get("dist_m", 0)),
+            "route_m": (float(it["route_m"]) if "route_m" in it else None),
+        })
+    return jsonify({"van_id": van_id, "points": points})
+
+
+# ── Real van tracking / simulation control ────────────────────────────────────
+# Fleet base — matches FLEET_BASE_LAT/LON in the frontend.
+REAL_VAN_BASE_LAT = 37.8897
+REAL_VAN_BASE_LON = -122.3024
+SIM_STEP_M = 650   # ~1 min of city driving between precomputed waypoints
+
+
+def _real_van_table():
+    return boto3.resource("dynamodb").Table(REAL_VAN_TABLE)
+
+
+def _get_real_van_state(van_id):
+    return _real_van_table().get_item(
+        Key={"van_id": van_id, "ts": "STATE"}).get("Item") or {}
+
+
+def _osrm_routes(lat1, lon1, lat2, lon2, alternatives=False):
+    """Return a list of routes, each a list of [lon, lat] coords, via OSRM."""
+    alt = "true" if alternatives else "false"
+    url = (f"https://router.project-osrm.org/route/v1/driving/"
+           f"{lon1},{lat1};{lon2},{lat2}"
+           f"?overview=full&geometries=geojson&alternatives={alt}")
+    r = requests.get(url, timeout=8)
+    r.raise_for_status()
+    data = r.json()
+    return [rt["geometry"]["coordinates"] for rt in data.get("routes", [])]
+
+
+def _hav_m(lat1, lon1, lat2, lon2):
+    R = 6371000.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * R * math.asin(math.sqrt(a))
+
+
+def _coords_len_m(coords):
+    return sum(_hav_m(coords[i][1], coords[i][0], coords[i + 1][1], coords[i + 1][0])
+               for i in range(len(coords) - 1))
+
+
+def _precompute_waypoints(coords, step_m):
+    """Sample [lon, lat, route_m] every ~step_m along the polyline, in order."""
+    if len(coords) < 2:
+        return []
+    wps = [[coords[0][0], coords[0][1], 0.0]]
+    walked = 0.0
+    next_mark = step_m
+    for i in range(len(coords) - 1):
+        lo1, la1 = coords[i]
+        lo2, la2 = coords[i + 1]
+        seg = _hav_m(la1, lo1, la2, lo2)
+        while seg > 0 and next_mark <= walked + seg:
+            t = (next_mark - walked) / seg
+            wps.append([lo1 + t * (lo2 - lo1), la1 + t * (la2 - la1), round(next_mark, 1)])
+            next_mark += step_m
+        walked += seg
+    wps.append([coords[-1][0], coords[-1][1], round(walked, 1)])
+    return wps
+
+
+def _overlap_fraction(route, ref):
+    """Fraction of `route` points that sit ~on top of `ref` (rounded ~30m grid)."""
+    ref_grid = {(round(la, 3), round(lo, 3)) for lo, la in ref}  # ~110m cells
+    if not route:
+        return 1.0
+    hits = sum(1 for lo, la in route if (round(la, 3), round(lo, 3)) in ref_grid)
+    return hits / len(route)
+
+
+def _build_loop_path(cur_lat, cur_lon):
+    """current -> base, then base -> current via the most different route."""
+    out = _osrm_routes(cur_lat, cur_lon, REAL_VAN_BASE_LAT, REAL_VAN_BASE_LON)
+    outbound = out[0] if out else [[cur_lon, cur_lat], [REAL_VAN_BASE_LON, REAL_VAN_BASE_LAT]]
+    backs = _osrm_routes(REAL_VAN_BASE_LAT, REAL_VAN_BASE_LON, cur_lat, cur_lon,
+                         alternatives=True)
+    if not backs:
+        backs = [[[REAL_VAN_BASE_LON, REAL_VAN_BASE_LAT], [cur_lon, cur_lat]]]
+    # Prefer the return route that least overlaps the outbound leg.
+    return_leg = min(backs, key=lambda rt: _overlap_fraction(rt, outbound))
+    loop = outbound + return_leg
+    return loop, _coords_len_m(loop)
+
+
+@app.route("/api/fleet/real-van/status", methods=["GET"])
+def api_fleet_real_van_status():
+    """GET current tracking/simulation flags for a real van."""
+    van_id = request.args.get("van_id", "real-1")
+    st = _get_real_van_state(van_id)
+    return jsonify({
+        "van_id":   van_id,
+        "tracking": st.get("tracking", "running"),
+        "sim":      st.get("sim", "off"),
+    })
+
+
+@app.route("/api/fleet/real-van/status", methods=["POST"])
+def api_fleet_real_van_status_set():
+    """Update tracking/simulation flags. action: pause|resume|sim_start|sim_stop."""
+    body = request.json or {}
+    van_id = body.get("van_id", "real-1")
+    action = body.get("action", "")
+    table = _real_van_table()
+    st = _get_real_van_state(van_id)
+    updates = {}
+
+    if action == "pause":
+        # Pausing also stops any running simulation.
+        updates = {"tracking": "paused", "sim": "off"}
+    elif action == "resume":
+        updates = {"tracking": "running"}
+        # Instant move: capture the current live position right away.
+        try:
+            resp = requests.get(REAL_VAN_URL, timeout=5)
+            d = resp.json()
+            lat, lon = d.get("Latitude"), d.get("Longitude")
+            if lat is not None and lon is not None:
+                now = datetime.now(timezone.utc)
+                table.put_item(Item={
+                    "van_id": van_id,
+                    "ts": now.isoformat().replace("+00:00", "Z"),
+                    "lat": Decimal(str(lat)), "lon": Decimal(str(lon)),
+                    "street": d.get("Street", "") or "",
+                    "source_time": d.get("Time", "") or "",
+                    "moving": False, "dist_m": Decimal("0"),
+                    "ttl": int(time.time()) + 70 * 60,
+                })
+        except Exception:
+            pass
+    elif action == "sim_start":
+        # Starting a simulation forces tracking on.
+        cur_lat = float(st.get("last_lat", REAL_VAN_BASE_LAT))
+        cur_lon = float(st.get("last_lon", REAL_VAN_BASE_LON))
+        try:
+            loop, total = _build_loop_path(cur_lat, cur_lon)
+            waypoints = _precompute_waypoints(loop, SIM_STEP_M)
+        except Exception as exc:
+            return jsonify({"error": f"loop path build failed: {exc}"}), 502
+        updates = {
+            "sim": "on", "tracking": "running", "sim_index": Decimal("0"),
+            "sim_path": json.dumps(loop, separators=(",", ":")),
+            "sim_total_m": Decimal(str(round(total, 1))),
+            "sim_wp": json.dumps(waypoints, separators=(",", ":")),
+        }
+    elif action == "sim_stop":
+        updates = {"sim": "off"}
+    else:
+        return jsonify({"error": f"unknown action: {action}"}), 400
+
+    # Merge onto the existing STATE item (preserve mode/last_* fields).
+    item = dict(st)
+    item["van_id"] = van_id
+    item["ts"] = "STATE"
+    item.update(updates)
+    table.put_item(Item=item)
+    return jsonify({
+        "van_id":   van_id,
+        "tracking": item.get("tracking", "running"),
+        "sim":      item.get("sim", "off"),
+    })
+
+
+@app.route("/api/fleet/real-van/sim-path")
+def api_fleet_real_van_sim_path():
+    """GET the current simulation loop polyline (for drawing on the map)."""
+    van_id = request.args.get("van_id", "real-1")
+    st = _get_real_van_state(van_id)
+    try:
+        path = json.loads(st.get("sim_path") or "[]")
+    except Exception:
+        path = []
+    return jsonify({"van_id": van_id, "path": path,
+                    "total_m": float(st.get("sim_total_m", 0) or 0)})
+
+
 @app.route("/api/fleet/vans", methods=["POST"])
 def api_fleet_save():
     """Save fleet van configuration to DynamoDB."""
@@ -631,9 +884,28 @@ def api_fleet_schedule_save(van_id: str):
 
     try:
         sched_mod.save_schedule(existing)
-        return jsonify({"ok": True, "schedule": existing})
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
+
+    # Save to schedule history (source field distinguishes csv_upload from manual edits)
+    source = body.get("source", "edit")
+    event_type = "csv_upload" if source == "csv" else "edited"
+    try:
+        now_pt     = datetime.now(timezone.utc) - timedelta(hours=7)
+        now_pt_min = now_pt.hour * 60 + now_pt.minute
+        completed  = sched_mod.compute_completed_rides(existing, now_pt_min)
+        first_pending = next(
+            (r["seq"] for r in existing.get("rides", []) if r["seq"] not in completed), None
+        )
+        sched_mod.save_schedule_history(
+            van_id=van_id, date_str=date_str, event_type=event_type,
+            schedule=existing, completed_rides=completed,
+            active_from_ride_seq=first_pending,
+        )
+    except Exception:
+        pass
+
+    return jsonify({"ok": True, "schedule": existing})
 
 
 @app.route("/api/fleet/schedule/generate", methods=["POST"])
@@ -705,6 +977,16 @@ def api_fleet_van_create():
         start_lon = sched_mod.BASE_LON
         msg = f"{v_id} added at base — no rides remaining for today"
 
+    # Save to schedule history
+    try:
+        sched_mod.save_schedule_history(
+            van_id=v_id, date_str=date_str, event_type="created",
+            schedule=sched, completed_rides=[],
+            active_from_ride_seq=next_ride["seq"] if next_ride else None,
+        )
+    except Exception:
+        pass
+
     return jsonify({
         "ok":            True,
         "van_id":        v_id,
@@ -726,6 +1008,22 @@ def api_fleet_van_delete(van_id: str):
     except ValueError:
         return jsonify({"error": f"invalid van_id: {van_id}"}), 400
 
+    # Save history entry before deleting: record completed rides + deletion timestamp
+    try:
+        existing = sched_mod.get_schedule(van_id, date_str)
+        if existing:
+            now_pt     = datetime.now(timezone.utc) - timedelta(hours=7)
+            now_pt_min = now_pt.hour * 60 + now_pt.minute
+            completed  = sched_mod.compute_completed_rides(existing, now_pt_min)
+            now_iso    = datetime.now(timezone.utc).isoformat()
+            sched_mod.save_schedule_history(
+                van_id=van_id, date_str=date_str, event_type="deleted",
+                schedule=existing, completed_rides=completed,
+                active_from_ride_seq=None, deletion_timestamp=now_iso,
+            )
+    except Exception:
+        pass
+
     try:
         sched_mod.delete_schedule(van_id, date_str)
     except Exception as exc:
@@ -741,6 +1039,44 @@ def api_fleet_van_delete(van_id: str):
 
 def _pt_date_str() -> str:
     return (datetime.now(timezone.utc) - timedelta(hours=7)).strftime("%Y-%m-%d")
+
+
+@app.route("/api/fleet/replay")
+def api_fleet_replay():
+    """GET /api/fleet/replay?date=YYYY-MM-DD&hour=H — return full replay payload for a past date."""
+    date_str = request.args.get("date", "")
+    try:
+        hour = int(request.args.get("hour", 0))
+    except ValueError:
+        return jsonify({"error": "hour must be 0-23"}), 400
+
+    if not date_str:
+        return jsonify({"error": "date required"}), 400
+
+    try:
+        req_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        return jsonify({"error": "date must be YYYY-MM-DD"}), 400
+
+    pt_now  = datetime.now(timezone.utc) - timedelta(hours=7)
+    pt_date = pt_now.date()
+    delta   = (pt_date - req_date).days
+    if delta < 0 or delta > 7:
+        return jsonify({"error": "date must be within last 7 days"}), 400
+
+    try:
+        history_by_van = sched_mod.get_schedule_history_for_date(date_str)
+        archive_events = get_archive_events_for_date(date_str)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    schedules = [{"van_id": v, "history": h} for v, h in history_by_van.items()]
+    return jsonify({
+        "date":      date_str,
+        "hour":      hour,
+        "schedules": schedules,
+        "events":    archive_events,
+    })
 
 
 @app.route("/api/fleet/transit")

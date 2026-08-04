@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- ADA Driving Assistant v2.3 -->
+<!-- ADA Driving Assistant v3.6 -->
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
@@ -569,7 +569,12 @@ aside h2 {
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+}
+#van-list-wrap {
+  flex: 1;
   overflow-y: auto;
+  min-height: 0;
 }
 .fleet-sidebar h2 {
   font-size: .7rem;
@@ -586,13 +591,16 @@ aside h2 {
   display: flex; flex-wrap: wrap; align-items: center; gap: 5px;
   padding: 8px 10px; border-bottom: 1px solid var(--border); flex-shrink: 0;
 }
-.sched-ctrl-bar input[type=date] {
-  background: var(--bg); color: var(--fg); border: 1px solid var(--border);
-  border-radius: 5px; padding: 3px 6px; font-size: .77rem;
+.fleet-live-clock {
+  display: flex; align-items: baseline; gap: 5px; flex: 1; min-width: 0;
+}
+.fleet-live-date {
+  font-size: .78rem; color: var(--muted); white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 #fleet-clock {
-  font-size: .82rem; font-variant-numeric: tabular-nums;
-  color: var(--fg); font-weight: 600; min-width: 70px;
+  font-size: .86rem; font-variant-numeric: tabular-nums;
+  color: var(--text); font-weight: 700; white-space: nowrap;
 }
 .speed-btn {
   background: var(--surface2,#2a2a3a); color: var(--fg);
@@ -666,6 +674,156 @@ aside h2 {
   justify-content: flex-end; border-top: 1px solid var(--border);
 }
 .btn-sched-save { font-size: .72rem; padding: 2px 9px; }
+
+/* ── Fleet Simulated / Real sub-tabs ── */
+.fleet-subtabs {
+  display: flex; gap: 4px; padding: 10px 12px 0;
+}
+.fleet-subtab {
+  flex: 1; padding: 6px 8px; font-size: .68rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .08em;
+  background: var(--surface); color: var(--muted);
+  border: 1px solid var(--border); border-radius: 5px; cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.fleet-subtab:hover { color: var(--text); }
+.fleet-subtab.active { background: var(--blue); color: #04122b; border-color: var(--blue); }
+
+/* Panes fill the remaining sidebar height so inner lists can scroll. */
+.fleet-subpane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+.real-van-list-wrap { padding: 12px; overflow-y: auto; }
+.real-van-card {
+  background: rgba(88,166,255,.035);
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px 12px; margin-bottom: 8px;
+}
+.real-van-hdr { display: flex; align-items: center; gap: 8px; }
+.rv-btn {
+  flex: none; width: 26px; height: 26px; padding: 0;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 5px; cursor: pointer;
+  font-size: .8rem; line-height: 1;
+}
+.rv-btn:hover { border-color: var(--blue); color: var(--blue); }
+.rv-status {
+  flex: none; font-size: .62rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .05em; padding: 2px 7px; border-radius: 10px;
+}
+.rv-status-running { background: rgba(34,197,94,.15);  color: #22c55e; }
+.rv-status-paused  { background: rgba(148,163,184,.18); color: #94a3b8; }
+.rv-status-sim     { background: rgba(88,166,255,.18);  color: var(--blue); }
+.real-van-controls { margin: 10px 0 0 34px; }
+.rv-sim-btn {
+  font-size: .72rem; font-weight: 600; padding: 4px 10px; cursor: pointer;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 5px;
+}
+.rv-sim-btn:hover { border-color: var(--blue); color: var(--blue); }
+.rv-sim-btn.active { background: rgba(88,166,255,.15); border-color: var(--blue); color: var(--blue); }
+.real-van-thumb {
+  width: 15px; height: 32px; object-fit: contain; flex: none;
+  filter: drop-shadow(0 0 2px rgba(0,0,0,.5));
+}
+.real-van-name {
+  flex: 1; min-width: 0; background: transparent; color: var(--text);
+  font-size: .9rem; font-weight: 600; padding: 3px 6px;
+  border: 1px solid transparent; border-radius: 5px;
+}
+.real-van-name:hover { border-color: var(--border); }
+.real-van-name:focus { outline: none; border-color: var(--blue); background: rgba(0,0,0,.2); }
+.real-van-loc { display: flex; flex-direction: column; margin: 8px 0 0 25px; line-height: 1.35; }
+.rv-street { font-size: .82rem; color: var(--text); }
+.rv-city { font-size: .72rem; color: var(--muted); }
+.real-van-waiting {
+  display: block; margin: 8px 0 0 25px; font-size: .78rem;
+  color: var(--muted); font-style: italic;
+}
+
+/* ── History / Replay section ── */
+.history-section {
+  flex-shrink: 0;
+  padding: 10px 12px 12px;
+  border-bottom: 2px solid var(--border);
+  background: rgba(88,166,255,.035);
+}
+.history-hdr {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 10px;
+}
+.history-hdr-title {
+  font-size: .68rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .09em; color: var(--muted);
+}
+.history-row {
+  display: flex; align-items: center; gap: 0; margin-bottom: 7px;
+}
+.history-field-label {
+  font-size: .72rem; color: var(--muted); width: 38px; flex-shrink: 0;
+}
+.history-arrow {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 4px;
+  color: var(--text); cursor: pointer; font-size: .8rem; padding: 2px 8px; line-height: 1.5;
+  flex-shrink: 0;
+}
+.history-arrow:hover { border-color: var(--blue); color: var(--blue); }
+.history-arrow:disabled { opacity: .3; cursor: default; pointer-events: none; }
+.history-value {
+  flex: 1; text-align: center;
+  font-size: .82rem; font-weight: 600; font-variant-numeric: tabular-nums;
+  color: var(--text); padding: 2px 4px;
+  border: 1px solid transparent; border-left: none; border-right: none;
+  background: rgba(255,255,255,.04);
+  min-width: 0;
+}
+.history-actions {
+  display: flex; align-items: center; gap: 6px; margin-top: 10px;
+}
+#replay-toggle-btn {
+  flex: 1;
+  background: rgba(34,197,94,.15); border: 1px solid #22c55e; border-radius: 5px;
+  color: #22c55e; cursor: pointer; font-size: .78rem; padding: 4px 0; font-weight: 600;
+}
+#replay-toggle-btn:hover { background: rgba(34,197,94,.28); }
+#replay-toggle-btn:disabled { opacity: .4; cursor: default; }
+#replay-toggle-btn.paused {
+  background: rgba(234,179,8,.12); border-color: #eab308; color: #eab308;
+}
+#replay-toggle-btn.paused:hover { background: rgba(234,179,8,.25); }
+#replay-reset-btn {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 5px;
+  color: var(--muted); cursor: pointer; font-size: .8rem; padding: 4px 8px;
+  display: none;
+}
+#replay-reset-btn:hover { border-color: var(--blue); color: var(--blue); }
+#replay-exit-btn {
+  background: none; border: 1px solid transparent; border-radius: 5px;
+  color: var(--muted); cursor: pointer; font-size: .75rem; padding: 4px 7px;
+  display: none;
+}
+#replay-exit-btn:hover { border-color: var(--red); color: var(--red); }
+.replay-sim-clock {
+  font-size: .82rem; font-weight: 700; font-variant-numeric: tabular-nums;
+  color: var(--blue); letter-spacing: .01em;
+}
+.replay-speed-group { display: flex; gap: 0; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.replay-speed-btn {
+  background: var(--surface); border: none; color: var(--muted);
+  cursor: pointer; font-size: .76rem; padding: 3px 10px;
+}
+.replay-speed-btn + .replay-speed-btn { border-left: 1px solid var(--border); }
+.replay-speed-btn.active { background: rgba(88,166,255,.18); color: var(--blue); }
+.replay-mode-badge {
+  display: none; font-size: .65rem; font-weight: 700; letter-spacing: .07em;
+  background: rgba(88,166,255,.2); color: var(--blue); border-radius: 3px;
+  padding: 1px 6px; animation: pulse .9s infinite;
+}
+body.replay-mode .replay-mode-badge { display: inline-block; }
+body.replay-mode .van-add-btn,
+body.replay-mode .van-delete-btn,
+body.replay-mode .van-pause-btn { opacity: .35; pointer-events: none; }
+body.replay-mode .sched-ctrl-bar button:not(#btn-speed-1x):not(#btn-speed-10x) { opacity: .35; pointer-events: none; }
+body.replay-mode .sched-ctrl-bar input { opacity: .35; pointer-events: none; }
 .fleet-map-wrap { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 #fleet-map { flex: 1; min-height: 0; }
 #fleet-sim-controls {
@@ -871,7 +1029,7 @@ aside h2 {
 <header>
   <div style="display:flex;align-items:center;gap:10px;">
     <img src="/ada_logo.jpg" style="height:40px;border-radius:6px;display:block;" alt="ADA Logo"/>
-    <h1>ADA <span>Driving Assistant</span> <span style="font-size:0.7rem;color:var(--muted);font-weight:400;">v2.3</span></h1>
+    <h1>ADA <span>Driving Assistant</span> <span style="font-size:0.7rem;color:var(--muted);font-weight:400;">v3.6</span></h1>
   </div>
   <div style="display:flex;align-items:center;gap:12px;">
     <div id="wake-indicator">
@@ -1018,14 +1176,75 @@ aside h2 {
         </div>
       </div>
       <div class="sched-ctrl-bar">
-        <input type="date" id="sched-date" onchange="onSchedDateChange()" style="flex:1;min-width:0;">
-        <button class="btn btn-ghost" onclick="onGenerateSchedules()" style="font-size:.73rem;padding:2px 8px;" title="Generate schedule for this date">⚡</button>
-        <span id="fleet-clock"></span>
+        <div class="fleet-live-clock">
+          <span class="fleet-live-date" id="fleet-date-display">—</span>
+          <span id="fleet-clock">—</span>
+        </div>
+        <input type="hidden" id="sched-date">
+        <button class="btn btn-ghost" onclick="onGenerateSchedules()" style="font-size:.73rem;padding:2px 8px;" title="Generate schedule for today">⚡</button>
         <button class="speed-btn active" id="btn-speed-1x" onclick="setSimSpeed(1)">1×</button>
         <button class="speed-btn" id="btn-speed-10x" onclick="setSimSpeed(10)">10×</button>
         <button class="btn btn-ghost" onclick="resetSimTime()" style="font-size:.77rem;padding:2px 5px;" title="Reset to current real time">↺</button>
       </div>
-      <div id="van-sched-list"></div>
+
+      <!-- ── Fleet sub-tabs: Simulated / Real ─────────────────────── -->
+      <div class="fleet-subtabs">
+        <button class="fleet-subtab active" data-fleetsub="sim" onclick="switchFleetSub('sim')">Simulated</button>
+        <button class="fleet-subtab" data-fleetsub="real" onclick="switchFleetSub('real')">Real</button>
+      </div>
+
+      <!-- SIMULATED pane: History/Replay controls + simulated van list -->
+      <div id="fleet-sub-sim" class="fleet-subpane">
+
+      <!-- ── History / Replay section ─────────────────────────────── -->
+      <div class="history-section">
+        <div class="history-hdr">
+          <span class="history-hdr-title">📅 History</span>
+          <span class="replay-mode-badge">● REPLAY</span>
+          <button id="replay-exit-btn" onclick="stopReplay()" title="Exit replay, return to live">✕ Live</button>
+        </div>
+
+        <!-- Start date/time selector rows -->
+        <div class="history-row">
+          <span class="history-field-label">Date</span>
+          <button class="history-arrow" onclick="replayShiftDate(-1)" title="Previous day" id="replay-prev-date">◀</button>
+          <span class="history-value" id="replay-date-label">—</span>
+          <button class="history-arrow" onclick="replayShiftDate(+1)" title="Next day" id="replay-next-date">▶</button>
+        </div>
+        <div class="history-row">
+          <span class="history-field-label">Time</span>
+          <button class="history-arrow" onclick="replayShiftHour(-1)" title="Earlier" id="replay-prev-hour">◀</button>
+          <span class="history-value" id="replay-hour-label">—</span>
+          <button class="history-arrow" onclick="replayShiftHour(+1)" title="Later" id="replay-next-hour">▶</button>
+        </div>
+
+        <!-- Running sim clock (visible only during replay) -->
+        <div class="history-row" id="replay-clock-row" style="display:none;">
+          <span class="history-field-label" style="color:var(--blue);">Now</span>
+          <span class="replay-sim-clock" id="replay-clock-display"></span>
+        </div>
+
+        <!-- Actions row -->
+        <div class="history-actions">
+          <div class="replay-speed-group">
+            <button class="replay-speed-btn active" id="replay-1x-btn" onclick="setReplaySpeed(1)">1×</button>
+            <button class="replay-speed-btn" id="replay-10x-btn" onclick="setReplaySpeed(10)">10×</button>
+          </div>
+          <button id="replay-toggle-btn" onclick="toggleReplay()">▶ Start Replay</button>
+          <button id="replay-reset-btn" onclick="resetReplay()" title="Reset to selected start time">↺</button>
+        </div>
+      </div>
+
+      <!-- Van schedule list (scrollable) -->
+      <div id="van-list-wrap">
+        <div id="van-sched-list"></div>
+      </div>
+      </div><!-- /fleet-sub-sim -->
+
+      <!-- REAL pane: list of physical vans -->
+      <div id="fleet-sub-real" class="fleet-subpane real-van-list-wrap" style="display:none;">
+        <div id="real-van-list"></div>
+      </div>
     </div>
 
     <!-- Middle: map + sim controls -->
@@ -3647,7 +3866,21 @@ let _simEpoch = null;  // sim epoch ms at _simBase wall time
 let _simBase  = null;  // wall clock ms when epoch was set
 let _simSpeed = 1;     // 1 or 10
 
+// ── Replay state ────────────────────────────────────────────────
+let _replayMode         = false;
+let _replayDate         = null;   // PT date string "YYYY-MM-DD"
+let _replayHour         = 8;      // 0-23 PT hour
+let _replaySpeed        = 1;      // 1 or 10
+let _replayData         = null;   // {schedules, events} from /api/fleet/replay
+let _replayHistIdx      = {};     // van_id → next-event index
+let _replayInitHistIdx  = {};     // van_id → index at replay start (for reset)
+let _replayStartMs      = null;   // sim-clock ms at replay start (for reset)
+let _replayMarkers      = [];     // Leaflet markers added for replay events
+let _simPaused          = false;  // clock frozen (pause)
+let _simPausedAt        = null;   // sim-clock ms at pause time
+
 function simNowMs() {
+  if (_simPaused && _simPausedAt !== null) return _simPausedAt;
   if (_simBase === null) return Date.now();
   return _simEpoch + (Date.now() - _simBase) * _simSpeed;
 }
@@ -3717,6 +3950,20 @@ function makeVanIcon(num, color, bearing) {
     </div>`,
     iconSize:   [16, 32],
     iconAnchor: [8, 16],
+  });
+}
+
+// Real (physical) van uses the photorealistic van_real.png (lights already
+// painted in), no number overlay — the icon itself distinguishes it.
+function makeRealVanIcon(bearing) {
+  const rot = bearing || 0;
+  return L.divIcon({
+    className: '',
+    html: `<div class="van-inner" style="transform:rotate(${rot}deg);transform-origin:7px 16px;width:14px;height:32px;position:relative;">
+      <img src="/van_real.png" style="width:14px;height:32px;display:block;transform:rotate(180deg);filter:drop-shadow(0 0 2px rgba(0,0,0,0.55));"/>
+    </div>`,
+    iconSize:   [14, 32],
+    iconAnchor: [7, 16],
   });
 }
 
@@ -3889,8 +4136,7 @@ async function loadSchedules(dateStr) {
 }
 
 async function onGenerateSchedules() {
-  const dateStr = document.getElementById('sched-date')?.value;
-  if (!dateStr) { appendFleetMessage('system', 'Select a date first.'); return; }
+  const dateStr = simDateStrPT(Date.now());
   appendFleetMessage('system', `Generating schedules for ${dateStr}…`);
   const API_BASE = window.ADA_API_BASE || '';
   try {
@@ -4395,7 +4641,7 @@ async function importVanCsv(vanId, file) {
     const resp = await fetch(`${API_BASE}/api/fleet/schedule/${schedId}`, {
       method: 'PUT',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ date: dateStr, rides: newSched.rides, recompute: false }),
+      body: JSON.stringify({ date: dateStr, rides: newSched.rides, recompute: false, source: 'csv' }),
     });
     if (!resp.ok) { appendFleetMessage('system', `Import failed: HTTP ${resp.status}`); return; }
   } catch (err) { appendFleetMessage('system', `Import error: ${err.message}`); return; }
@@ -4611,15 +4857,666 @@ function updateVanMarker(van) {
   }
 }
 
+// ── Real (physical) vans — recorded track + driving playback ─────────────
+const REAL_VAN_POLL_MS = 5000;   // how often we pull fresh history
+const REAL_VAN_STEP_MS = 60;     // animation stepper cadence
+const REAL_VAN_MOVE_M  = 15;     // min distance to count as "driving"
+
+function _loadRealVanName(id, fallback) {
+  try { return localStorage.getItem('ada_realvan_name_' + id) || fallback; }
+  catch (_) { return fallback; }
+}
+
+// One real van for now; its recorded track drives the on-map playback.
+// Modelled as a list so more physical vans can be added later.
+let realVans = [{
+  id: 'real-1', name: _loadRealVanName('real-1', "Alex's Van"),
+  lat: null, lon: null, bearing: 0, street: '', city: '', time: '',
+  marker: null,
+  track: [], playIdx: -1,   // playIdx = index of the point currently shown
+  anim: null,               // active driving segment {coords,totalM,start,dur}
+  _fetchingRoute: false,
+  tracking: 'running',      // running | paused (DB-backed, polled)
+  sim: 'off',               // on | off  (simulation)
+  simPath: null,            // loop polyline [[lon,lat],...] while simulating
+  simLayer: null,           // Leaflet polyline showing the route
+  _simDrawn: false,
+}];
+let realVanInterval = null;
+let realVanStepInterval = null;
+
+function _realVanLabel(rv) {
+  return `${rv.name}${rv.street ? ' — ' + rv.street : ''}`;
+}
+
+function updateRealVanMarker(rv) {
+  if (!fleetMap || rv.lat == null) return;
+  if (!rv.marker) {
+    rv.marker = L.marker([rv.lat, rv.lon],
+      { icon: makeRealVanIcon(rv.bearing), zIndexOffset: 1000 }).addTo(fleetMap);
+    rv.marker.bindTooltip(_realVanLabel(rv), { direction: 'top', offset: [0, -16] });
+  } else {
+    rv.marker.setLatLng([rv.lat, rv.lon]);
+    const el = rv.marker.getElement();
+    if (el) {
+      const inner = el.querySelector('div');
+      if (inner) inner.style.transform = `rotate(${rv.bearing}deg)`;
+    }
+  }
+  rv.marker.setTooltipContent(_realVanLabel(rv));
+}
+
+// Show a track point immediately (no animation): move marker + refresh list.
+function _showRealVanPoint(rv, p) {
+  rv.lat = p.lat; rv.lon = p.lon;
+  rv.street = p.street || ''; rv.city = vanCityAt(rv); rv.time = p.ts;
+  updateRealVanMarker(rv);
+  renderRealVanList();
+}
+
+function _mergeTrack(rv, pts) {
+  const seen = new Set(rv.track.map(p => p.ts));
+  let added = false;
+  for (const p of pts) {
+    if (p.ts && !seen.has(p.ts)) { rv.track.push(p); seen.add(p.ts); added = true; }
+  }
+  if (added) rv.track.sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
+  if (rv.track.length > 240) {                 // safety cap; keep playIdx valid
+    const removed = rv.track.length - 240;
+    rv.track = rv.track.slice(-240);
+    rv.playIdx = Math.max(-1, rv.playIdx - removed);
+  }
+  // First data: jump straight to the latest point (start playback near-live).
+  if (rv.playIdx < 0 && rv.track.length) {
+    rv.playIdx = rv.track.length - 1;
+    _showRealVanPoint(rv, rv.track[rv.playIdx]);
+  }
+}
+
+async function fetchRealVanHistory(rv) {
+  try {
+    const resp = await fetch(`${API_BASE}/api/fleet/real-van/history?van_id=${encodeURIComponent(rv.id)}&mins=60`);
+    if (resp.ok) {
+      const d = await resp.json();
+      const pts = (d.points || []).filter(p => typeof p.lat === 'number' && typeof p.lon === 'number');
+      if (pts.length) { _mergeTrack(rv, pts); return; }
+    }
+  } catch (_) { /* fall through to live proxy */ }
+  // Fallback (no history yet): show the current live position as one point.
+  try {
+    const r = await fetch(`${API_BASE}/api/fleet/real-van`);
+    if (!r.ok) return;
+    const d = await r.json();
+    if (typeof d.lat === 'number' && typeof d.lon === 'number') {
+      _mergeTrack(rv, [{ ts: d.time || new Date().toISOString(), lat: d.lat, lon: d.lon, street: d.street || '', moving: false }]);
+    }
+  } catch (_) { /* transient — retry next interval */ }
+}
+
+function _stepRealVan(rv) {
+  if (!fleetMap || rv.playIdx < 0) return;
+  if (rv.tracking === 'paused') return;   // frozen while paused
+
+  // 1) Mid-drive: advance along the current routed segment.
+  if (rv.anim) {
+    const frac = Math.min(1, (performance.now() - rv.anim.start) / rv.anim.dur);
+    const pos  = posAtDistM(rv.anim.coords, frac * rv.anim.totalM);
+    if (pos) { rv.lat = pos.lat; rv.lon = pos.lon; rv.bearing = pos.bearing; updateRealVanMarker(rv); }
+    if (frac >= 1) {
+      rv.anim = null;
+      rv.playIdx++;
+      _showRealVanPoint(rv, rv.track[rv.playIdx]);
+    }
+    return;
+  }
+
+  if (rv._fetchingRoute) return;                  // route request in flight
+  if (rv.playIdx >= rv.track.length - 1) return;  // nothing new to play
+
+  const prev    = rv.track[rv.playIdx];
+  const next    = rv.track[rv.playIdx + 1];
+  const dist    = haversineM(rv.lat, rv.lon, next.lat, next.lon);
+  const backlog = (rv.track.length - 1) - rv.playIdx;
+
+  // Parked / negligible move → snap without animating.
+  if (!next.moving || dist < REAL_VAN_MOVE_M) {
+    rv.playIdx++;
+    _showRealVanPoint(rv, next);
+    return;
+  }
+
+  // SIMULATION: follow the precomputed loop polyline exactly (no re-routing).
+  if (rv.sim === 'on' && rv.simPath && prev && prev.route_m != null && next.route_m != null) {
+    if (next.route_m <= prev.route_m) {   // loop wrapped back to start — snap
+      rv.playIdx++;
+      _showRealVanPoint(rv, next);
+      return;
+    }
+    const coords = _polylineSlice(rv.simPath, prev.route_m, next.route_m);
+    rv.anim = { coords, totalM: coordsTotalM(coords) || Math.max(dist, 1),
+                start: performance.now(), dur: 2500 };
+    return;
+  }
+
+  // Absurdly far behind (real feed only) → snap to catch up.
+  if (backlog >= 40) { rv.playIdx++; _showRealVanPoint(rv, next); return; }
+
+  // REAL feed: drive from the current spot to the next point along a road route.
+  const fromLat = rv.lat, fromLon = rv.lon;
+  const dur = backlog >= 8 ? 1000 : backlog >= 3 ? 2500 : 6000;
+  rv._fetchingRoute = true;
+  fetchOsrmRoute(fromLat, fromLon, next.lat, next.lon)
+    .then(r => {
+      const coords = (r && r.coords && r.coords.length >= 2)
+        ? r.coords : [[fromLon, fromLat], [next.lon, next.lat]];
+      rv.anim = { coords, totalM: coordsTotalM(coords) || Math.max(dist, 1), start: performance.now(), dur };
+    })
+    .catch(() => {
+      rv.anim = { coords: [[fromLon, fromLat], [next.lon, next.lat]], totalM: Math.max(dist, 1), start: performance.now(), dur };
+    })
+    .finally(() => { rv._fetchingRoute = false; });
+}
+
+function _stepRealVans() { for (const rv of realVans) _stepRealVan(rv); }
+
+// Draw / clear the simulation loop route polyline on the map.
+function ensureSimPath(rv) {
+  if (rv._simDrawn) return;
+  rv._simDrawn = true;   // set early to avoid a double fetch
+  fetch(`${API_BASE}/api/fleet/real-van/sim-path?van_id=${encodeURIComponent(rv.id)}`)
+    .then(r => r.ok ? r.json() : null)
+    .then(d => {
+      if (!d || !Array.isArray(d.path) || d.path.length < 2) { rv._simDrawn = false; return; }
+      rv.simPath = d.path;
+      const latlngs = d.path.map(([lo, la]) => [la, lo]);
+      if (rv.simLayer) fleetMap.removeLayer(rv.simLayer);
+      rv.simLayer = L.polyline(latlngs, {
+        color: '#f5a623', weight: 3, opacity: 0.75, dashArray: '6,8',
+      }).addTo(fleetMap);
+    })
+    .catch(() => { rv._simDrawn = false; });
+}
+
+function clearSimPath(rv) {
+  if (rv.simLayer && fleetMap) fleetMap.removeLayer(rv.simLayer);
+  rv.simLayer = null; rv.simPath = null; rv._simDrawn = false;
+}
+
+// Sub-polyline of `coords` ([[lon,lat],...]) between route distances d1..d2 (m).
+function _polylineSlice(coords, d1, d2) {
+  const out = [];
+  let walked = 0;
+  for (let i = 0; i < coords.length - 1; i++) {
+    const [lo1, la1] = coords[i], [lo2, la2] = coords[i + 1];
+    const seg = haversineM(la1, lo1, la2, lo2);
+    const segEnd = walked + seg;
+    if (segEnd >= d1 && seg > 0) {
+      if (out.length === 0) {
+        const t = Math.max(0, (d1 - walked) / seg);
+        out.push([lo1 + t * (lo2 - lo1), la1 + t * (la2 - la1)]);
+      }
+      if (segEnd >= d2) {
+        const t = (d2 - walked) / seg;
+        out.push([lo1 + t * (lo2 - lo1), la1 + t * (la2 - la1)]);
+        break;
+      }
+      out.push([lo2, la2]);
+    }
+    walked = segEnd;
+  }
+  if (out.length < 2) out.push(coords[coords.length - 1]);
+  return out;
+}
+
+// Poll DB-backed tracking/sim status so all users see the same state.
+async function fetchRealVanStatus(rv) {
+  try {
+    const r = await fetch(`${API_BASE}/api/fleet/real-van/status?van_id=${encodeURIComponent(rv.id)}`);
+    if (!r.ok) return;
+    const d = await r.json();
+    const wasPaused = rv.tracking === 'paused';
+    rv.tracking = d.tracking || 'running';
+    rv.sim = d.sim || 'off';
+    if (rv.sim === 'on') ensureSimPath(rv); else clearSimPath(rv);
+    // On resume, snap instantly to the latest known point, then continue.
+    if (wasPaused && rv.tracking === 'running' && rv.track.length) {
+      rv.playIdx = rv.track.length - 1;
+      rv.anim = null;
+      _showRealVanPoint(rv, rv.track[rv.playIdx]);
+    }
+    renderRealVanList();
+  } catch (_) { /* transient — retry next interval */ }
+}
+
+// Button handler: pause | resume | sim_start | sim_stop
+async function realVanSetStatus(id, action) {
+  const rv = realVans.find(v => v.id === id);
+  if (!rv) return;
+  // Optimistic UI (reconciled by the next status poll).
+  if (action === 'pause')          { rv.tracking = 'paused'; rv.sim = 'off'; }
+  else if (action === 'resume')    { rv.tracking = 'running'; }
+  else if (action === 'sim_start') { rv.sim = 'on';  rv.tracking = 'running'; }
+  else if (action === 'sim_stop')  { rv.sim = 'off'; }
+  renderRealVanList();
+  try {
+    await fetch(`${API_BASE}/api/fleet/real-van/status`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ van_id: id, action }),
+    });
+  } catch (_) { /* ignore; poll will reconcile */ }
+  fetchRealVanStatus(rv);
+  fetchRealVanHistory(rv);
+}
+
+function startRealVanPolling() {
+  if (realVanInterval) return;
+  const tick = () => realVans.forEach(rv => { fetchRealVanStatus(rv); fetchRealVanHistory(rv); });
+  tick();
+  realVanInterval     = setInterval(tick, REAL_VAN_POLL_MS);
+  realVanStepInterval = setInterval(_stepRealVans, REAL_VAN_STEP_MS);
+}
+
+function editRealVanName(id, value) {
+  const rv = realVans.find(v => v.id === id);
+  if (!rv) return;
+  rv.name = (value || '').trim() || rv.name;
+  try { localStorage.setItem('ada_realvan_name_' + id, rv.name); } catch (_) {}
+  if (rv.marker) rv.marker.setTooltipContent(_realVanLabel(rv));
+  renderRealVanList();
+}
+
+function renderRealVanList() {
+  const el = document.getElementById('real-van-list');
+  if (!el) return;
+  el.innerHTML = realVans.map(rv => {
+    const loc = rv.lat == null
+      ? '<span class="real-van-waiting">Waiting for position…</span>'
+      : `<div class="real-van-loc">
+           <span class="rv-street">${escHtml(rv.street || 'Unknown street')}</span>
+           <span class="rv-city">${escHtml(rv.city || '')}</span>
+         </div>`;
+    const paused  = rv.tracking === 'paused';
+    const simOn   = rv.sim === 'on';
+    const statusText  = paused ? 'Paused' : (simOn ? 'Simulating' : 'Running');
+    const statusClass = paused ? 'paused' : (simOn ? 'sim' : 'running');
+    return `<div class="real-van-card">
+      <div class="real-van-hdr">
+        <button class="rv-btn" title="${paused ? 'Resume tracking' : 'Pause tracking'}"
+                onclick="realVanSetStatus('${rv.id}','${paused ? 'resume' : 'pause'}')">${paused ? '▶' : '⏸'}</button>
+        <img src="/van_real.png" class="real-van-thumb" alt=""/>
+        <input class="real-van-name" type="text" value="${escHtml(rv.name)}"
+               onchange="editRealVanName('${rv.id}', this.value)"
+               onkeydown="if(event.key==='Enter')this.blur()"
+               title="Edit van name" aria-label="Van name" />
+        <span class="rv-status rv-status-${statusClass}">${statusText}</span>
+      </div>
+      ${loc}
+      <div class="real-van-controls">
+        <button class="rv-sim-btn ${simOn ? 'active' : ''}"
+                onclick="realVanSetStatus('${rv.id}','${simOn ? 'sim_stop' : 'sim_start'}')">
+          ${simOn ? '⏹ Stop simulation' : '▶ Start simulation'}
+        </button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function switchFleetSub(which) {
+  document.querySelectorAll('.fleet-subtab').forEach(b =>
+    b.classList.toggle('active', b.dataset.fleetsub === which));
+  const sim  = document.getElementById('fleet-sub-sim');
+  const real = document.getElementById('fleet-sub-real');
+  if (sim)  sim.style.display  = (which === 'sim')  ? '' : 'none';
+  if (real) real.style.display = (which === 'real') ? '' : 'none';
+  if (which === 'real') renderRealVanList();
+}
+
+// ── Replay ─────────────────────────────────────────────────────
+
+function _initReplayDefaults() {
+  if (!_replayDate) {
+    const yesterday = new Date(Date.now() - 7 * 3_600_000 - 86_400_000);
+    _replayDate = yesterday.toISOString().slice(0, 10);
+    _replayHour = 8;
+  }
+  _updateReplayLabels();
+}
+
+function replayShiftDate(delta) {
+  if (_replayMode) return;
+  const ptNow   = new Date(Date.now() - 7 * 3_600_000);
+  const base    = _replayDate ? new Date(_replayDate + 'T12:00:00Z') : new Date(Date.now() - 7 * 3_600_000 - 86_400_000);
+  base.setUTCDate(base.getUTCDate() + delta);
+  const ptToday = Date.UTC(ptNow.getUTCFullYear(), ptNow.getUTCMonth(), ptNow.getUTCDate());
+  const minMs   = ptToday - 7 * 86_400_000;
+  const maxMs   = ptToday - 86_400_000;
+  if (base.getTime() < minMs) base.setTime(minMs);
+  if (base.getTime() > maxMs) base.setTime(maxMs);
+  _replayDate = base.toISOString().slice(0, 10);
+  _updateReplayLabels();
+}
+
+function replayShiftHour(delta) {
+  if (_replayMode) return;
+  _replayHour = Math.max(0, Math.min(23, _replayHour + delta));
+  _updateReplayLabels();
+}
+
+function setReplaySpeed(s) {
+  _replaySpeed = s;
+  document.getElementById('replay-1x-btn')?.classList.toggle('active', s === 1);
+  document.getElementById('replay-10x-btn')?.classList.toggle('active', s === 10);
+  if (_replayMode) {
+    // Re-anchor sim time to keep position consistent
+    const cur = simNowMs();
+    _simEpoch  = cur;
+    _simBase   = Date.now();
+    _simSpeed  = s;
+  }
+}
+
+function _updateReplayLabels() {
+  const dl = document.getElementById('replay-date-label');
+  const hl = document.getElementById('replay-hour-label');
+
+  // Format date as "Mon, May 7" for readability
+  if (dl && _replayDate) {
+    const d = new Date(_replayDate + 'T12:00:00Z');
+    const opts = { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' };
+    dl.textContent = d.toLocaleDateString('en-US', opts);
+  } else if (dl) {
+    dl.textContent = '—';
+  }
+
+  if (hl) hl.textContent = `${String(_replayHour).padStart(2,'0')}:00`;
+
+  // Disable arrow buttons at the boundaries
+  const ptNow   = new Date(Date.now() - 7 * 3_600_000);
+  const ptToday = Date.UTC(ptNow.getUTCFullYear(), ptNow.getUTCMonth(), ptNow.getUTCDate());
+  const curMs   = _replayDate ? new Date(_replayDate + 'T12:00:00Z').getTime() : 0;
+  const atMin   = curMs <= ptToday - 7 * 86_400_000;
+  const atMax   = curMs >= ptToday - 86_400_000;
+  const disabled = _replayMode;
+  document.getElementById('replay-prev-date')?.toggleAttribute('disabled', atMin || disabled);
+  document.getElementById('replay-next-date')?.toggleAttribute('disabled', atMax || disabled);
+  document.getElementById('replay-prev-hour')?.toggleAttribute('disabled', _replayHour <= 0  || disabled);
+  document.getElementById('replay-next-hour')?.toggleAttribute('disabled', _replayHour >= 23 || disabled);
+}
+
+async function startReplay() {
+  if (!_replayDate) return;
+  const API_BASE  = window.ADA_API_BASE || '';
+  const toggleBtn = document.getElementById('replay-toggle-btn');
+  if (toggleBtn) { toggleBtn.disabled = true; toggleBtn.textContent = '⏳ Loading…'; }
+
+  try {
+    const qs = new URLSearchParams({ date: _replayDate, hour: _replayHour });
+    const resp = await fetch(`${API_BASE}/api/fleet/replay?${qs}`);
+    if (!resp.ok) { alert(`Replay error: HTTP ${resp.status}`); return; }
+    _replayData = await resp.json();
+  } catch (err) {
+    alert(`Replay error: ${err}`);
+    return;
+  } finally {
+    if (toggleBtn) toggleBtn.disabled = false;
+  }
+
+  // Set sim clock to replay start time: _replayDate is PT date, _replayHour is PT hour
+  // PT is UTC-7, so PT HH:00 = UTC (HH+7):00
+  const [ry, rmo, rd] = _replayDate.split('-').map(Number);
+  const startPtMs = Date.UTC(ry, rmo - 1, rd, _replayHour + 7, 0, 0);
+  _simEpoch  = startPtMs;
+  _simBase   = Date.now();
+  _simSpeed  = _replaySpeed;
+  setReplaySpeed(_replaySpeed);
+
+  // Load archived schedules into _scheduleData
+  _scheduleData = {};
+  _replayHistIdx = {};
+  for (const vanSched of (_replayData.schedules || [])) {
+    // Apply all history events up to the replay start time, then remember the index
+    const hist = vanSched.history || [];
+    let applyIdx = 0;
+    for (let i = 0; i < hist.length; i++) {
+      const ts = new Date(hist[i].timestamp).getTime();
+      if (ts <= startPtMs) applyIdx = i + 1;
+      else break;
+    }
+    // Apply state as of startPtMs
+    _applyVanHistoryUpTo(vanSched.van_id, hist, applyIdx);
+    _replayHistIdx[vanSched.van_id] = applyIdx;
+  }
+
+  // Make sure vans array matches the replay data (add/remove as needed)
+  const vanNums = (_replayData.schedules || []).map(v => {
+    const m = v.van_id.match(/(\d+)$/);
+    return m ? parseInt(m[1], 10) : null;
+  }).filter(Boolean);
+  _replayInitVans(vanNums);
+
+  // Load archived events onto the map
+  _clearReplayMarkers();
+  _loadReplayEventMarkers(_replayData.events || [], startPtMs);
+
+  // Store initial state for reset
+  _replayStartMs     = startPtMs;
+  _replayInitHistIdx = Object.assign({}, _replayHistIdx);
+
+  // Enter replay mode — running (not paused)
+  _simPaused  = false;
+  _simPausedAt = null;
+  _replayMode = true;
+  document.body.classList.add('replay-mode');
+  _setReplayToggleState('playing');
+  document.getElementById('replay-reset-btn').style.display = '';
+  document.getElementById('replay-exit-btn').style.display  = '';
+  _flog('info', `Replay started: ${_replayDate} from ${_replayHour}:00 PT at ${_replaySpeed}×`);
+
+  // Refresh van cards so write buttons are disabled
+  renderScheduleSidebar();
+}
+
+function _setReplayToggleState(state) {
+  const btn = document.getElementById('replay-toggle-btn');
+  if (!btn) return;
+  if (state === 'playing') {
+    btn.textContent = '⏸ Pause';
+    btn.classList.remove('paused');
+  } else if (state === 'paused') {
+    btn.textContent = '▶ Resume';
+    btn.classList.add('paused');
+  } else {
+    btn.textContent = '▶ Start Replay';
+    btn.classList.remove('paused');
+  }
+}
+
+async function toggleReplay() {
+  if (!_replayMode) {
+    await startReplay();
+  } else if (_simPaused) {
+    // Resume from pause
+    _simEpoch    = _simPausedAt;
+    _simBase     = Date.now();
+    _simPaused   = false;
+    _simPausedAt = null;
+    _setReplayToggleState('playing');
+    _flog('info', 'Replay resumed');
+  } else {
+    // Pause — freeze the clock
+    _simPausedAt = simNowMs();
+    _simPaused   = true;
+    _setReplayToggleState('paused');
+    _flog('info', `Replay paused`);
+  }
+}
+
+function resetReplay() {
+  if (!_replayData || _replayStartMs === null) return;
+
+  // Freeze clock at start time
+  _simPaused   = true;
+  _simPausedAt = _replayStartMs;
+
+  // Re-apply van state as of replay start
+  _scheduleData  = {};
+  _replayHistIdx = Object.assign({}, _replayInitHistIdx);
+  for (const vanSched of (_replayData.schedules || [])) {
+    const hist = vanSched.history || [];
+    _applyVanHistoryUpTo(vanSched.van_id, hist, _replayHistIdx[vanSched.van_id] || 0);
+  }
+  for (const van of vans) van._deletedAt = null;
+  const vanNums = (_replayData.schedules || []).map(v => {
+    const m = v.van_id.match(/(\d+)$/); return m ? parseInt(m[1], 10) : null;
+  }).filter(Boolean);
+  _replayInitVans(vanNums);
+
+  // Reload event markers from the start
+  _clearReplayMarkers();
+  _loadReplayEventMarkers(_replayData.events || [], _replayStartMs);
+
+  _setReplayToggleState('paused');
+  _flog('info', `Replay reset to ${_replayDate} ${String(_replayHour).padStart(2,'0')}:00`);
+}
+
+function stopReplay() {
+  _replayMode   = false;
+  _replayData   = null;
+  _replayHistIdx = {};
+  _simPaused    = false;
+  _simPausedAt  = null;
+  _replayStartMs = null;
+  document.body.classList.remove('replay-mode');
+  _setReplayToggleState('idle');
+  document.getElementById('replay-reset-btn').style.display = 'none';
+  document.getElementById('replay-exit-btn').style.display  = 'none';
+
+  // Clear replay markers and return to live
+  _clearReplayMarkers();
+  resetSimTime();
+
+  // Reload live schedules
+  const dateStr = simDateStrPT(Date.now());
+  loadSchedules(dateStr).catch(() => {});
+  _flog('info', 'Replay stopped — returned to live mode');
+  _updateReplayLabels();
+  renderScheduleSidebar();
+}
+
+function _applyVanHistoryUpTo(vanId, hist, upToIdx) {
+  for (let i = 0; i < upToIdx; i++) {
+    const entry = hist[i];
+    if (entry.event_type === 'deleted') {
+      const num = parseInt(vanId.replace(/\D/g, ''), 10);
+      const van = vans.find(v => v.id === num);
+      if (van) van._deletedAt = new Date(entry.timestamp).getTime();
+      continue;
+    }
+    if (entry.schedule) {
+      _scheduleData[vanId] = entry.schedule;
+    }
+  }
+}
+
+function _applyReplayHistoryEvents() {
+  if (!_replayMode || !_replayData) return;
+  const nowMs = simNowMs();
+
+  for (const vanSched of (_replayData.schedules || [])) {
+    const vanId = vanSched.van_id;
+    const hist  = vanSched.history || [];
+    let idx     = _replayHistIdx[vanId] || 0;
+
+    while (idx < hist.length) {
+      const entry = hist[idx];
+      const ts    = new Date(entry.timestamp).getTime();
+      if (ts > nowMs) break;
+
+      const num = parseInt(vanId.replace(/\D/g, ''), 10);
+      const van = vans.find(v => v.id === num);
+
+      if (entry.event_type === 'deleted') {
+        if (van) {
+          van._deletedAt = ts;
+          _removeVanFromMap(van);
+        }
+      } else if (entry.schedule) {
+        _scheduleData[vanId] = entry.schedule;
+        _flog('info', `Replay: ${vanId} ${entry.event_type} applied at ${new Date(ts).toISOString()}`);
+      }
+      idx++;
+    }
+    _replayHistIdx[vanId] = idx;
+  }
+}
+
+function _replayInitVans(vanNums) {
+  // Remove vans not in replay snapshot
+  const toRemove = vans.filter(v => !vanNums.includes(v.id));
+  for (const van of toRemove) _removeVanFromMap(van);
+  vans = vans.filter(v => vanNums.includes(v.id));
+
+  // Add vans present in replay snapshot but missing from current array
+  for (const num of vanNums) {
+    if (!vans.find(v => v.id === num)) {
+      const newVan = _makeVanObj(num);
+      vans.push(newVan);
+    }
+    // Clear any leftover deletion flag
+    const van = vans.find(v => v.id === num);
+    if (van) van._deletedAt = null;
+  }
+  renderScheduleSidebar();
+}
+
+function _removeVanFromMap(van) {
+  if (van.marker)    { van.marker.remove();    van.marker    = null; }
+  if (van.polyBehind && fleetMap) { fleetMap.removeLayer(van.polyBehind); van.polyBehind = null; }
+  if (van.polyAhead  && fleetMap) { fleetMap.removeLayer(van.polyAhead);  van.polyAhead  = null; }
+}
+
+function _loadReplayEventMarkers(events, replayStartMs) {
+  for (const ev of events) {
+    const inactiveAt = new Date(ev.inactive_at).getTime();
+    if (inactiveAt <= replayStartMs) continue;
+    fleetPlaceEventMarker(ev, { countInTotal: false });
+    _replayMarkers.push({ event_id: ev.event_id, inactiveAt });
+  }
+}
+
+function _gcReplayMarkers() {
+  const nowMs = simNowMs();
+  for (let i = _replayMarkers.length - 1; i >= 0; i--) {
+    const rm = _replayMarkers[i];
+    if (nowMs >= rm.inactiveAt) {
+      fleetRemoveEventMarker(rm.event_id);
+      _replayMarkers.splice(i, 1);
+    }
+  }
+}
+
+function _clearReplayMarkers() {
+  for (const rm of _replayMarkers) fleetRemoveEventMarker(rm.event_id);
+  _replayMarkers = [];
+}
+
 // ── Simulation ─────────────────────────────────────────────────
 
 async function fleetTick() {
   if (_fleetTickBusy) return;
   _fleetTickBusy = true;
   try {
+    // ── Replay hooks ──────────────────────────────────────────
+    if (_replayMode) {
+      _applyReplayHistoryEvents();
+      _gcReplayMarkers();
+    }
+
     const timePT = simMinPT();
 
     for (const van of vans) {
+      // Skip vans that have been deleted during replay
+      if (_replayMode && van._deletedAt && simNowMs() >= van._deletedAt) continue;
 
       // ── Paused van ────────────────────────────────────────────
       if (van.paused) {
@@ -4712,8 +5609,8 @@ async function fleetTick() {
       updateVanMarker(van);
       setVanLights(van, leg.phase);
 
-      // Per-block event check on riding legs
-      if (leg.phase === 'riding' && prevLat != null) {
+      // Per-block event check on riding legs (skip in replay mode)
+      if (!_replayMode && leg.phase === 'riding' && prevLat != null) {
         const moved = haversineM(prevLat, prevLon, newLat, newLon);
         van._distSinceCheck = (van._distSinceCheck || 0) + moved;
         const curStreet  = simStreetNameAtVan(van);
@@ -4734,8 +5631,8 @@ async function fleetTick() {
     // Throttle heavy DOM updates to ~1 Hz
     if (++_uiTick >= 10) { _uiTick = 0; _updateVanStatusChips(); }
 
-    // Client-side GC: sweep expired markers every ~30 s
-    if (++_fleetGcTick >= 300) {
+    // Client-side GC: sweep expired markers every ~30 s (in replay, handled by _gcReplayMarkers)
+    if (!_replayMode && ++_fleetGcTick >= 300) {
       _fleetGcTick = 0;
       const now = Date.now();
       for (const [eid, expiryMs] of fleetEventExpiry) {
@@ -4758,20 +5655,46 @@ function stopFleetTick() {
 
 function fleetReset() {
   resetSimTime();
-  const dateStr = simDateStrPT();
-  const dateEl  = document.getElementById('sched-date');
-  if (dateEl) dateEl.value = dateStr;
+  const dateStr = simDateStrPT(Date.now());
   loadSchedules(dateStr);
 }
 
 function updateFleetClock() {
-  const el = document.getElementById('fleet-clock');
-  if (!el) return;
-  const ptD = new Date(simNowMs() - 7 * 3_600_000);
-  const h   = String(ptD.getUTCHours()).padStart(2,'0');
-  const m   = String(ptD.getUTCMinutes()).padStart(2,'0');
-  const s   = String(ptD.getUTCSeconds()).padStart(2,'0');
-  el.textContent = `${h}:${m}:${s}`;
+  // ── Live clock (always shows real PT time) ──────────────────
+  const liveD = new Date(Date.now() - 7 * 3_600_000);
+  const lh = String(liveD.getUTCHours()).padStart(2,'0');
+  const lm = String(liveD.getUTCMinutes()).padStart(2,'0');
+  const ls = String(liveD.getUTCSeconds()).padStart(2,'0');
+  const clockEl = document.getElementById('fleet-clock');
+  if (clockEl) clockEl.textContent = `${lh}:${lm}:${ls}`;
+
+  const dateEl = document.getElementById('fleet-date-display');
+  if (dateEl) {
+    const opts = { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' };
+    dateEl.textContent = liveD.toLocaleDateString('en-US', opts);
+  }
+
+  // Keep hidden sched-date in sync for schedule generation
+  const hdInput = document.getElementById('sched-date');
+  if (hdInput && !_replayMode) {
+    const todayStr = simDateStrPT(Date.now());
+    if (hdInput.value !== todayStr) hdInput.value = todayStr;
+  }
+
+  // ── Replay sim clock (shows historical position when active) ──
+  const clockRow  = document.getElementById('replay-clock-row');
+  const clockDisp = document.getElementById('replay-clock-display');
+  if (_replayMode && clockDisp) {
+    const simD = new Date(simNowMs() - 7 * 3_600_000);
+    const sh   = String(simD.getUTCHours()).padStart(2,'0');
+    const sm   = String(simD.getUTCMinutes()).padStart(2,'0');
+    const ss   = String(simD.getUTCSeconds()).padStart(2,'0');
+    const dOpts = { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' };
+    clockDisp.textContent = `${simD.toLocaleDateString('en-US', dOpts)}  ${sh}:${sm}:${ss}`;
+    if (clockRow) clockRow.style.display = 'flex';
+  } else if (clockRow) {
+    clockRow.style.display = 'none';
+  }
 }
 
 // ── Van list (stub kept for backward compat with chat commands) ────
@@ -5287,6 +6210,7 @@ function switchTab(tab) {
     fleetInitialized = true;
     resetSimTime();
     initFleetMap();
+    _initReplayDefaults();   // populate History section with sensible defaults
     const todayPT = simDateStrPT();
     const dateEl  = document.getElementById('sched-date');
     if (dateEl) dateEl.value = todayPT;
@@ -5300,6 +6224,7 @@ function switchTab(tab) {
       loadFleetEventMarkers();
     })();
     startFleetTick();
+    startRealVanPolling();
   }
 
   if (tab === 'fleet' && fleetMap) {
