@@ -345,21 +345,81 @@ def find_streets_mentioned(question: str,
     return list(seen.values())
 
 
+_SUGGEST_SUFFIXES = {
+    'avenue', 'ave', 'street', 'st', 'drive', 'dr', 'boulevard', 'blvd',
+    'way', 'road', 'rd', 'lane', 'ln', 'court', 'ct', 'place', 'pl',
+    'terrace', 'ter', 'circle', 'cir', 'run', 'loop', 'path', 'trail', 'row',
+}
+
+# Several suffixes above are also everyday English words — way, road, drive,
+# run, path, row, place, court, circle, loop, trail. Without a guard, ordinary
+# prose gets read as a misspelled street: "are road conditions clear ahead?"
+# produced {'are road': 'Arden Road'} and the assistant answered with a
+# spelling correction instead of the road conditions.
+#
+# A candidate is rejected when any word in front of the suffix is one of these
+# function words, which never carry the distinguishing part of a street name.
+# Deliberately excluded are words that are also real street names here — main,
+# park, grand, center, central, union, market, hill, north/south/east/west —
+# so those keep working. The bias is intentional: a missed suggestion costs the
+# user nothing, while a false one derails the answer.
+_NON_NAME_WORDS = {
+    # determiners, pronouns, possessives
+    'a', 'an', 'the', 'this', 'that', 'these', 'those', 'my', 'your', 'his',
+    'her', 'its', 'our', 'their', 'any', 'some', 'no', 'every', 'each', 'all',
+    'both', 'either', 'neither', 'another', 'other', 'same', 'such',
+    'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'us', 'them',
+    # verbs and auxiliaries
+    'is', 'am', 'are', 'was', 'were', 'be', 'been', 'being', 'do', 'does',
+    'did', 'have', 'has', 'had', 'will', 'would', 'can', 'could', 'should',
+    'shall', 'might', 'must', 'get', 'getting', 'go', 'going', 'take',
+    'taking', 'know', 'tell', 'show', 'find', 'see', 'check',
+    # question words
+    'how', 'what', 'when', 'where', 'which', 'who', 'whose', 'why',
+    # prepositions and conjunctions
+    'on', 'in', 'at', 'to', 'from', 'of', 'for', 'with', 'by', 'about',
+    'along', 'across', 'down', 'up', 'under', 'off', 'out', 'into',
+    'onto', 'past', 'via', 'and', 'or', 'but', 'if', 'then', 'than', 'as',
+    # adverbs and filler common in these questions
+    'there', 'here', 'ahead', 'back', 'behind', 'next', 'last', 'only',
+    'just', 'also', 'very', 'too', 'so', 'more', 'most', 'less', 'again',
+    'now', 'soon', 'still', 'yet', 'ever', 'never', 'always', 'please',
+    'thanks', 'ok', 'okay', 'yes', 'not',
+    # spelled-out numbers ("is it a one way street?"). Numbered streets in the
+    # data use digits or ordinals — 1st Avenue, 40th Street — never these.
+    'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine',
+    'ten', 'eleven', 'twelve',
+    # words describing the query itself rather than a place
+    'traffic', 'conditions', 'condition', 'obstacle', 'obstacles', 'event',
+    'events', 'hazard', 'hazards', 'closure', 'closures', 'delay', 'delays',
+    'detour', 'trip', 'clear', 'blocked', 'busy', 'open', 'closed',
+    'quickest', 'fastest', 'shortest', 'best', 'worst',
+}
+# Left out on purpose, because each is the distinguishing word of a real street
+# in the covered cities and none plausibly precedes a street-type word in
+# ordinary prose: may (May Road, May Court), over (Over Street), route
+# (Key Route Boulevard).
+#
+# The handful of real streets this list does still shadow — A Street, Best
+# Avenue, Last Avenue, My Way, Pan Am Way, The Circle, West A Street — lose only
+# spelling correction, not recognition: find_streets_mentioned() matches them
+# exactly, and app.py asks for suggestions only when nothing matched.
+
+
 def find_street_suggestions(question: str) -> dict[str, str]:
     """
     For street-like phrases in the question that don't match any known street,
     return {typed_phrase: closest_known_street} using fuzzy matching.
     Only returns suggestions for phrases that look like street names
     (contain a street-type suffix) but weren't found by exact matching.
+
+    Phrases whose non-suffix words are ordinary function words are skipped —
+    see _NON_NAME_WORDS.
     """
     import difflib
     import re
 
-    _SUFFIXES = {
-        'avenue', 'ave', 'street', 'st', 'drive', 'dr', 'boulevard', 'blvd',
-        'way', 'road', 'rd', 'lane', 'ln', 'court', 'ct', 'place', 'pl',
-        'terrace', 'ter', 'circle', 'cir', 'run', 'loop', 'path', 'trail', 'row',
-    }
+    _SUFFIXES = _SUGGEST_SUFFIXES
 
     try:
         data = _load_streets()
@@ -377,13 +437,27 @@ def find_street_suggestions(question: str) -> dict[str, str]:
     # Tokenise the question; for each suffix token, build 1-word and 2-word candidates
     words = re.findall(r"[\w']+", q_lower)
     candidates: set[str] = set()
+
+    def _is_name_like(lead: list[str]) -> bool:
+        """True when every word ahead of the suffix could belong to a street name."""
+        return bool(lead) and not any(w.rstrip('.') in _NON_NAME_WORDS for w in lead)
+
     for i, word in enumerate(words):
         clean = word.rstrip('.')
         if clean in _SUFFIXES:
-            if i >= 1:
+            # Longer candidates are checked too: "on arden road" is dropped for
+            # the leading "on" while "arden road" still stands on its own.
+            if i >= 1 and _is_name_like(words[i - 1:i]):
                 candidates.add(' '.join(words[i - 1:i + 1]))   # 1 word + suffix
-            if i >= 2:
+            if i >= 2 and _is_name_like(words[i - 2:i]):
                 candidates.add(' '.join(words[i - 2:i + 1]))   # 2 words + suffix
+
+    def _distinguishing(name: str) -> str:
+        """The street name minus its trailing street-type word."""
+        parts = name.split()
+        if len(parts) > 1 and parts[-1].rstrip('.') in _SUFFIXES:
+            parts = parts[:-1]
+        return ' '.join(parts)
 
     # raw: phrase → canonical
     raw: dict[str, str] = {}
@@ -394,9 +468,18 @@ def find_street_suggestions(question: str) -> dict[str, str]:
         if any(em in phrase for em in exact_matched):
             continue
         close = difflib.get_close_matches(phrase, known_lower, n=1, cutoff=0.72)
-        if close:
-            canonical = known[known_lower.index(close[0])]
-            raw[phrase] = canonical
+        if not close:
+            continue
+        # Whole-phrase similarity is dominated by the shared street-type word:
+        # "way street" scores 0.95 against "Bay Street" purely on " street".
+        # Require the distinguishing part to match too, so a real typo
+        # ("telegrah ave") is corrected but a different street is not proposed.
+        if difflib.SequenceMatcher(
+                None, _distinguishing(phrase), _distinguishing(close[0])
+        ).ratio() < 0.72:
+            continue
+        canonical = known[known_lower.index(close[0])]
+        raw[phrase] = canonical
 
     # Deduplicate: for each canonical keep only the shortest candidate phrase
     best: dict[str, str] = {}  # canonical → best phrase
