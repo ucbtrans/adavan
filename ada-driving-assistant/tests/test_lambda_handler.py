@@ -4,74 +4,15 @@ Tests for the Lambda handler in app.py.
 Primary regression target: aws-wsgi returns statusCode as a string ("200"),
 which API Gateway HTTP API v2 rejects with a 503.  The handler must convert
 it to an int before returning.
+
+Network access is blocked in tests/conftest.py, so app.py is imported for real.
 """
 
 import json
-import sys
-import types
 import unittest
 from unittest.mock import MagicMock, patch
 
-
-# ---------------------------------------------------------------------------
-# Stubs — must be installed before app.py is imported.
-# Each stub is a plain ModuleType so app.py's top-level imports succeed.
-# ---------------------------------------------------------------------------
-
-def _stub(name, **attrs):
-    mod = types.ModuleType(name)
-    for k, v in attrs.items():
-        setattr(mod, k, v)
-    sys.modules[name] = mod
-    return mod
-
-
-# awsgi — critical: without this stub the try/except ImportError block in
-# app.py is skipped and handler / _normalise_event are never defined.
-_awsgi_default = {"statusCode": 200, "body": "{}", "headers": {}}
-_awsgi = _stub("awsgi", response=MagicMock(return_value=_awsgi_default))
-
-# boto3
-_dynamo_table = MagicMock()
-_dynamo_table.get_item.return_value = {"Item": None}
-_dynamo_resource = MagicMock()
-_dynamo_resource.Table.return_value = _dynamo_table
-_boto3 = _stub("boto3")
-_boto3.client   = MagicMock(return_value=MagicMock())
-_boto3.resource = MagicMock(return_value=_dynamo_resource)
-
-_stub("anthropic", Anthropic=MagicMock)
-_stub("dotenv", load_dotenv=lambda: None)
-_stub("sessions",
-      list_sessions=lambda: [],
-      find_session=lambda *a, **k: None,
-      get_session=lambda sid: None,
-      create_session=MagicMock(return_value={"id": "s1"}),
-      touch_session=lambda *a: None,
-      get_history=lambda *a, **k: [],
-      add_message=lambda *a: None)
-_stub("assistant",
-      answer_question=MagicMock(return_value=("ok", {})))
-_stub("events",
-      put_event=MagicMock(),
-      clear_event=MagicMock(),
-      event_lat_lon=MagicMock(return_value=(37.87, -122.27)),
-      get_events_by_city=MagicMock(return_value=[]),
-      get_events_by_street=MagicMock(return_value=[]),
-      get_events_near=MagicMock(return_value=[]))
-_stub("location",
-      find_nearby_objects=MagicMock(return_value=[]),
-      find_objects_on_street=MagicMock(return_value=[]),
-      find_street_suggestions=MagicMock(return_value={}),
-      find_streets_mentioned=MagicMock(return_value=[]),
-      geocode_address=MagicMock(return_value=None),
-      object_center=MagicMock(return_value=(37.87, -122.27)),
-      random_location=MagicMock(return_value={"address": "Test St"}),
-      bearing_to_direction=MagicMock(return_value="N"),
-      find_objects_along_route=MagicMock(return_value=[]))
-_stub("parking", get_parking_context=MagicMock(return_value=None))
-
-import app as _app  # noqa: E402
+import app as _app
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -110,6 +51,8 @@ class TestStatusCodeIsInt(unittest.TestCase):
     """
 
     def _call(self, awsgi_resp):
+        # app.py calls awsgi.response(...) by attribute, so patching the module
+        # attribute intercepts it without touching app.py's import.
         with patch("awsgi.response", return_value=awsgi_resp):
             return _app.handler(_v2_event(), MagicMock())
 
@@ -126,6 +69,7 @@ class TestStatusCodeIsInt(unittest.TestCase):
     def test_string_500_converted_to_int(self):
         resp = self._call({"statusCode": "500", "body": '{"error":"x"}', "headers": {}})
         self.assertIsInstance(resp["statusCode"], int)
+        self.assertEqual(resp["statusCode"], 500)
 
     def test_int_statuscode_unchanged(self):
         resp = self._call({"statusCode": 200, "body": "{}", "headers": {}})
@@ -133,10 +77,12 @@ class TestStatusCodeIsInt(unittest.TestCase):
         self.assertEqual(resp["statusCode"], 200)
 
     def test_real_route_statuscode_is_int(self):
-        """End-to-end through Flask: statusCode in handler return is always int."""
-        resp = _app.handler(_v2_event("GET", "/api/session/list"), MagicMock())
+        """End-to-end through real aws-wsgi + Flask: statusCode is always int."""
+        with patch.object(_app.sess, "list_sessions", return_value=[]):
+            resp = _app.handler(_v2_event("GET", "/api/session/list"), MagicMock())
         self.assertIsInstance(resp["statusCode"], int,
                               f"statusCode type was {type(resp['statusCode'])}")
+        self.assertEqual(resp["statusCode"], 200)
 
 
 # ── Tests: _normalise_event ────────────────────────────────────────────────

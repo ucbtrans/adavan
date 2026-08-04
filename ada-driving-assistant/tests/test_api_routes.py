@@ -7,21 +7,18 @@ Primary regression targets:
   2. /api/ask returns a JSON error when Anthropic fails — not a Lambda crash
      that surfaces as "Connection error" in the browser.
   3. All routes return valid JSON on both happy-path and bad input.
+
+app.py is imported for real (network is blocked in tests/conftest.py); each
+test class patches only the collaborators its routes touch, so these tests do
+not depend on which test file pytest imported first.
 """
 
 import json
-import sys
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
-# ---------------------------------------------------------------------------
-# The stubs from test_lambda_handler.py are already in sys.modules (pytest
-# runs files in alphabetical order and _handler imports app first).
-# We just import the already-patched app module.
-# ---------------------------------------------------------------------------
-
-import app as _app  # noqa: E402  (stubs already installed)
+import app as _app
 
 _FAKE_SESSION = {
     "id": "sess-1",
@@ -50,24 +47,6 @@ _FAKE_EVENT = {
     "inactive_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
 }
 
-# Patch session/events stubs to use our fake data for these tests
-import sessions as _sess
-_sess.get_session  = lambda sid: _FAKE_SESSION if sid == "sess-1" else None
-_sess.list_sessions = lambda: [_FAKE_SESSION]
-_sess.get_history  = lambda *a, **k: []
-_sess.add_message  = lambda *a: None
-
-import events as _ev
-_ev.get_events_by_city   = MagicMock(return_value=[_FAKE_EVENT])
-_ev.get_events_by_street = MagicMock(return_value=[_FAKE_EVENT])
-_ev.put_event            = MagicMock()
-_ev.clear_event          = MagicMock()
-
-# Also patch the already-imported names inside app's namespace
-_app.answer_question = MagicMock(return_value=(
-    "Clear ahead.", {"input_tokens": 10, "output_tokens": 5, "model": "claude-opus-4-6"}
-))
-
 _app.app.config["TESTING"] = True
 _client = _app.app.test_client()
 
@@ -82,9 +61,30 @@ def _get(path):
     return _client.get(path)
 
 
+class _PatchingTestCase(unittest.TestCase):
+    """Starts patches that are undone after each test."""
+
+    def _patch(self, target, attr, **kw):
+        p = patch.object(target, attr, **kw)
+        mock = p.start()
+        self.addCleanup(p.stop)
+        return mock
+
+
 # ── /api/ask regression tests ──────────────────────────────────────────────
 
-class TestAskEndpoint(unittest.TestCase):
+class TestAskEndpoint(_PatchingTestCase):
+
+    def setUp(self):
+        self._patch(_app.sess, "get_session",
+                    new=lambda sid: dict(_FAKE_SESSION) if sid == "sess-1" else None)
+        self._patch(_app.sess, "get_history", new=lambda *a, **k: [])
+        self._patch(_app.sess, "add_message", new=lambda *a: None)
+        self._patch(_app, "get_all_events", return_value=[])
+        self.answer = self._patch(_app, "answer_question", return_value=(
+            "Clear ahead.",
+            {"input_tokens": 10, "output_tokens": 5, "model": "claude-opus-4-6"},
+        ))
 
     def _ask(self, question="Any hazards ahead?", session_id="sess-1", **extra):
         return _post("/api/ask", {"session_id": session_id, "question": question, **extra})
@@ -121,18 +121,16 @@ class TestAskEndpoint(unittest.TestCase):
         API Gateway which returned a 503 with no 'answer'/'error' field,
         causing the JS to show "Connection error".
         """
-        with patch.object(_app, "answer_question",
-                          side_effect=Exception("Anthropic timeout")):
-            r = self._ask()
+        self.answer.side_effect = Exception("Anthropic timeout")
+        r = self._ask()
         self.assertIn(r.status_code, (500, 503))
         data = r.get_json()
         self.assertIsNotNone(data, "Must return JSON even on Anthropic failure")
         self.assertIn("error", data, "'error' key required on Anthropic failure")
 
     def test_anthropic_failure_has_no_answer_key(self):
-        with patch.object(_app, "answer_question",
-                          side_effect=Exception("timeout")):
-            r = self._ask()
+        self.answer.side_effect = Exception("timeout")
+        r = self._ask()
         self.assertNotIn("answer", r.get_json())
 
     # -- Validation -----------------------------------------------------------
@@ -155,7 +153,15 @@ class TestAskEndpoint(unittest.TestCase):
 
 # ── /api/events endpoints ─────────────────────────────────────────────────
 
-class TestEventsEndpoints(unittest.TestCase):
+class TestEventsEndpoints(_PatchingTestCase):
+
+    def setUp(self):
+        self._patch(_app, "get_all_events", return_value=[_FAKE_EVENT])
+        self._patch(_app, "get_events_by_city", return_value=[_FAKE_EVENT])
+        self.by_street = self._patch(_app, "get_events_by_street",
+                                     return_value=[_FAKE_EVENT])
+        self.put_event   = self._patch(_app, "put_event")
+        self.clear_event = self._patch(_app, "clear_event")
 
     def test_events_list_returns_events_key(self):
         r = _get("/api/events")
@@ -177,6 +183,14 @@ class TestEventsEndpoints(unittest.TestCase):
         r = _get("/api/events/block?street=Telegraph+Ave&lat=37.866&lon=-122.259")
         self.assertEqual(r.status_code, 200)
         self.assertIn("events", r.get_json())
+
+    def test_events_block_filters_by_radius(self):
+        """Events outside the radius must not come back for the block."""
+        far = {**_FAKE_EVENT, "event_id": "ev-far", "lat": 37.9, "lon": -122.4}
+        self.by_street.return_value = [_FAKE_EVENT, far]
+        r = _get("/api/events/block?street=Telegraph+Ave&lat=37.866&lon=-122.259")
+        ids = [e["event_id"] for e in r.get_json()["events"]]
+        self.assertEqual(ids, ["ev-1"])
 
     def test_events_create_missing_field_returns_400(self):
         r = _post("/api/events", {"type": "single_cone", "lat": 37.866})
@@ -213,6 +227,7 @@ class TestEventsEndpoints(unittest.TestCase):
         })
         self.assertEqual(r.status_code, 200)
         self.assertIn("event_id", r.get_json())
+        self.assertEqual(self.put_event.call_count, 1)
 
     def test_events_clear_missing_street_returns_400(self):
         r = _post("/api/events/ev-1/clear", {})
@@ -225,11 +240,30 @@ class TestEventsEndpoints(unittest.TestCase):
         data = r.get_json()
         self.assertIn("cleared", data)
         self.assertTrue(data["cleared"])
+        self.assertEqual(self.clear_event.call_args[0][:2], ("Telegraph Ave", "ev-1"))
+
+    def test_events_create_dynamo_failure_returns_json_error(self):
+        self.put_event.side_effect = Exception("ProvisionedThroughputExceeded")
+        now = datetime.now(timezone.utc)
+        r = _post("/api/events", {
+            "type": "single_cone", "lat": 37.866, "lon": -122.259,
+            "street": "Telegraph Ave", "city": "Berkeley",
+            "active_at":   now.isoformat(),
+            "inactive_at": (now + timedelta(hours=2)).isoformat(),
+        })
+        self.assertEqual(r.status_code, 500)
+        self.assertIn("error", r.get_json())
 
 
 # ── Other routes ──────────────────────────────────────────────────────────
 
-class TestOtherRoutes(unittest.TestCase):
+class TestOtherRoutes(_PatchingTestCase):
+
+    def setUp(self):
+        self._patch(_app.sess, "list_sessions", new=lambda: [dict(_FAKE_SESSION)])
+        self._patch(_app.sess, "get_session",
+                    new=lambda sid: dict(_FAKE_SESSION) if sid == "sess-1" else None)
+        self.geocode = self._patch(_app, "geocode_address", return_value=None)
 
     def test_session_list_returns_list(self):
         r = _get("/api/session/list")
@@ -250,9 +284,15 @@ class TestOtherRoutes(unittest.TestCase):
         self.assertEqual(r.status_code, 400)
 
     def test_geocode_unknown_address_returns_404(self):
-        # The location stub returns None by default — just verify the 404
         r = _post("/api/location/geocode", {"address": "nowhere land xyz"})
         self.assertEqual(r.status_code, 404)
+
+    def test_geocode_known_address_returns_coords(self):
+        self.geocode.return_value = {"address": "2020 Telegraph Ave",
+                                     "lat": 37.866, "lon": -122.259}
+        r = _post("/api/location/geocode", {"address": "2020 Telegraph Ave"})
+        self.assertEqual(r.status_code, 200)
+        self.assertAlmostEqual(r.get_json()["lat"], 37.866, places=3)
 
 
 if __name__ == "__main__":

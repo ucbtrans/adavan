@@ -1,59 +1,17 @@
 """
-Tests for events.py — DynamoDB CRUD layer.
+Tests for events.py — the DynamoDB CRUD layer.
 
-This file imports the REAL events.py (not the stub used by the app tests).
-It installs its own boto3 stub and removes any previously cached stub for
-the events module so the real implementation is loaded.
+Real boto3 is used for Key/Attr expression building; every test that reaches a
+table patches events._get_table, and tests/conftest.py blocks the boto3 client
+factories, so nothing here touches AWS.
 """
 
-import sys
-import types
 import unittest
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
-# ---------------------------------------------------------------------------
-# Remove any previously cached stub for events and boto3 so we load the
-# real events.py (other test files stub events as a MagicMock module).
-# ---------------------------------------------------------------------------
-
-for _key in ("events", "boto3", "boto3.dynamodb", "boto3.dynamodb.conditions"):
-    sys.modules.pop(_key, None)
-
-
-def _make_conditions_stub():
-    """Lightweight Key/Attr stubs that support the operators events.py uses."""
-    mod = types.ModuleType("boto3.dynamodb.conditions")
-
-    class Key:
-        def __init__(self, name): self._n = name
-        def eq(self, v): return f"Key({self._n}).eq({v!r})"
-
-    class Attr:
-        def __init__(self, name): self._n = name
-        def gt(self, v):  return _Cond(f"Attr({self._n}).gt({v!r})")
-        def lt(self, v):  return _Cond(f"Attr({self._n}).lt({v!r})")
-        def lte(self, v): return _Cond(f"Attr({self._n}).lte({v!r})")
-
-    class _Cond:
-        def __init__(self, s): self._s = s
-        def __and__(self, other): return _Cond(f"({self._s} AND {other._s})")
-        def __repr__(self): return self._s
-
-    mod.Key  = Key
-    mod.Attr = Attr
-    return mod
-
-
-_boto3 = types.ModuleType("boto3")
-_boto3.resource = MagicMock()
-_boto3.client   = MagicMock()
-sys.modules["boto3"]                       = _boto3
-sys.modules["boto3.dynamodb"]              = types.ModuleType("boto3.dynamodb")
-sys.modules["boto3.dynamodb.conditions"]   = _make_conditions_stub()
-
-import events as ev  # noqa: E402  (imports real events.py now)
+import events as ev
 
 
 # ── event_to_dynamo ────────────────────────────────────────────────────────

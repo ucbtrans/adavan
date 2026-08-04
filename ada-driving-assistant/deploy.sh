@@ -51,7 +51,12 @@ SAM=""
 if command -v sam &>/dev/null; then
   SAM="sam"
 elif command -v cmd.exe &>/dev/null; then
-  SAM="cmd.exe /c sam"
+  # The Windows installer ships only sam.cmd, which bash cannot exec directly,
+  # so shell out to cmd.exe. Note the doubled slash: MSYS/Git Bash rewrites a
+  # bare "/c" argument into "C:/", which silently drops cmd.exe into interactive
+  # mode — it then reads EOF and exits 0, so every sam call becomes a no-op that
+  # reports success. "//c" reaches cmd.exe as "/c".
+  SAM="cmd.exe //c sam"
 else
   echo "ERROR: sam CLI not found."
   exit 1
@@ -66,8 +71,20 @@ SAM_CMD=($SAM)
 echo "==> Removing stale lambda.zip before build..."
 rm -f lambda.zip
 
+echo "==> Verifying SAM CLI is callable..."
+"${SAM_CMD[@]}" --version || { echo "ERROR: '${SAM_CMD[*]}' failed."; exit 1; }
+
 echo "==> Building Lambda package..."
 "${SAM_CMD[@]}" build
+
+# Guard against a sam invocation that reports success without doing anything:
+# every later step assumes these build directories exist.
+for required in .aws-sam/build/ApiFunction .aws-sam/build/SimulationFunction; do
+  [[ -d "$required" ]] || {
+    echo "ERROR: sam build reported success but $required is missing."
+    exit 1
+  }
+done
 
 # sam build does NOT honor .samignore — it copies everything under CodeUri.
 # Strip files the Lambdas never use at runtime (data JSONs are pulled from S3,
