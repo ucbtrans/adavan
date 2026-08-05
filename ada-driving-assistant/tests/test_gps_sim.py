@@ -424,6 +424,61 @@ class TestDriveMakesProgress(unittest.TestCase):
                         f"{len(stalled)}/{len(hops)} minutes advanced under 100 m")
 
 
+class TestRouteStaysOnTheRoad(unittest.TestCase):
+    """
+    Regression: at the end of a one-way with nowhere to go, the walk restarted
+    somewhere else entirely. Cursor interpolates between whatever points it is
+    handed, so it drew a straight line from here to there -- one jump measured
+    5979 m, and the ~600 fixes along it were all off-road. That is what
+    published an empty Street, since street_at() rightly refuses to name a
+    street 123 m away. A dead end now turns the van around instead.
+    """
+
+    SEEDS = (42, 11, 7, 2026)
+
+    @classmethod
+    def setUpClass(cls):
+        from location import _load_streets
+        cls.data = _load_streets()["streets"]
+        cls.net = gps_sim.StreetNetwork(cls.data)
+        # Longest gap between neighbouring vertices of one real polyline: any
+        # step longer than this cannot be ordinary geometry.
+        cls.max_span = max(
+            haversine_m(a["lat"], a["lon"], b["lat"], b["lon"])
+            for st in cls.data for seg in st.get("segments", [])
+            for a, b in zip(seg, seg[1:])
+        )
+
+    def test_route_has_no_discontinuities(self):
+        for seed in self.SEEDS:
+            with self.subTest(seed=seed):
+                gen = self.net.drive(random.Random(seed))
+                pts = [next(gen) for _ in range(4000)]
+                worst = max(haversine_m(a[0], a[1], b[0], b[1])
+                            for a, b in zip(pts, pts[1:]))
+                self.assertLessEqual(
+                    worst, self.max_span,
+                    f"seed {seed} jumped {worst:.0f} m between route points, "
+                    f"further than the longest real block ({self.max_span:.0f} m)")
+
+    def test_dead_end_turns_around_rather_than_restarting(self):
+        """A cul-de-sac must be left the way it was entered, not teleported out."""
+        streets = [{"name": "Dead End Lane", "lanes_backward": 0, "highway": "residential",
+                    "segments": [[{"lat": 37.800, "lon": -122.300},
+                                  {"lat": 37.801, "lon": -122.300}]]},
+                   {"name": "Far Away Road", "lanes_backward": 1, "highway": "residential",
+                    "segments": [[{"lat": 37.900, "lon": -122.400},
+                                  {"lat": 37.901, "lon": -122.400}]]}]
+        net = gps_sim.StreetNetwork(streets)
+        gen = net.drive(random.Random(0))
+        pts = [next(gen) for _ in range(60)]
+        for a, b in zip(pts, pts[1:]):
+            self.assertLess(haversine_m(a[0], a[1], b[0], b[1]), 500,
+                            "walk teleported between disconnected blocks")
+        self.assertEqual({p[2] for p in pts}, {pts[0][2]},
+                         "should stay on the block it started on")
+
+
 class TestWaitOrStop(unittest.TestCase):
     """
     Regression: Ctrl-C took seconds and several presses. Each loop slept its

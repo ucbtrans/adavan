@@ -4900,7 +4900,8 @@ let realVanStepInterval = null;
 let realVanAgeInterval = null;
 
 function _realVanLabel(rv) {
-  return `${rv.name}${rv.street ? ' — ' + rv.street : ''}`;
+  const where = _realVanStreetText(rv);
+  return `${rv.name}${where && where !== 'Unknown street' ? ' — ' + where : ''}`;
 }
 
 function updateRealVanMarker(rv) {
@@ -5019,7 +5020,8 @@ function _stepRealVan(rv) {
     }
     const coords = _polylineSlice(rv.simPath, prev.route_m, next.route_m);
     rv.anim = { coords, totalM: coordsTotalM(coords) || Math.max(dist, 1),
-                start: performance.now(), dur: 2500 };
+                start: performance.now(), dur: 2500,
+                fromStreet: _legStreet(prev), toStreet: _legStreet(next) };
     return;
   }
 
@@ -5029,15 +5031,16 @@ function _stepRealVan(rv) {
   // REAL feed: drive from the current spot to the next point along a road route.
   const fromLat = rv.lat, fromLon = rv.lon;
   const dur = _realVanLegDuration(prev, next, backlog);
+  const leg = { fromStreet: _legStreet(prev), toStreet: _legStreet(next) };
   rv._fetchingRoute = true;
   fetchOsrmRoute(fromLat, fromLon, next.lat, next.lon)
     .then(r => {
       const coords = (r && r.coords && r.coords.length >= 2)
         ? r.coords : [[fromLon, fromLat], [next.lon, next.lat]];
-      rv.anim = { coords, totalM: coordsTotalM(coords) || Math.max(dist, 1), start: performance.now(), dur };
+      rv.anim = { coords, totalM: coordsTotalM(coords) || Math.max(dist, 1), start: performance.now(), dur, ...leg };
     })
     .catch(() => {
-      rv.anim = { coords: [[fromLon, fromLat], [next.lon, next.lat]], totalM: Math.max(dist, 1), start: performance.now(), dur };
+      rv.anim = { coords: [[fromLon, fromLat], [next.lon, next.lat]], totalM: Math.max(dist, 1), start: performance.now(), dur, ...leg };
     })
     .finally(() => { rv._fetchingRoute = false; });
 }
@@ -5139,7 +5142,7 @@ function startRealVanPolling() {
   tick();
   realVanInterval     = setInterval(tick, REAL_VAN_POLL_MS);
   realVanStepInterval = setInterval(_stepRealVans, REAL_VAN_STEP_MS);
-  realVanAgeInterval  = setInterval(tickRealVanAges, REAL_VAN_AGE_MS);
+  realVanAgeInterval  = setInterval(tickRealVanCards, REAL_VAN_AGE_MS);
 }
 
 function editRealVanName(id, value) {
@@ -5151,10 +5154,23 @@ function editRealVanName(id, value) {
   renderRealVanList();
 }
 
-// ── "last fix" age ────────────────────────────────────────────────────────
-// Seconds since the newest recorded position, so it is visible whether the feed
-// is still arriving. Counts up to the reporting interval and resets on each new
-// report; a value that keeps climbing means the van (or the publisher) is quiet.
+// ── Live card fields ──────────────────────────────────────────────────────
+// Street, city and position age, refreshed every second. The van spends most of
+// a reporting interval mid-leg, and rv.street only updates on arrival, so during
+// a drive the card would otherwise name the street already left behind.
+
+function _legStreet(point) {
+  return (point && point.street) || '';
+}
+
+// In transit between two named streets, show both; otherwise just where it is.
+function _realVanStreetText(rv) {
+  const a = rv.anim;
+  if (a && a.fromStreet && a.toStreet && a.fromStreet !== a.toStreet) {
+    return `${a.fromStreet} → ${a.toStreet}`;
+  }
+  return rv.street || 'Unknown street';
+}
 
 function _realVanLastTs(rv) {
   for (let i = rv.track.length - 1; i >= 0; i--) {
@@ -5169,16 +5185,24 @@ function _realVanAgeText(rv) {
   if (!isFinite(ts)) return '';
   // Clamped: a browser clock running behind the server would otherwise go negative.
   const sec = Math.max(0, Math.round((Date.now() - ts) / 1000));
-  return sec < 60 ? `last fix ${sec}s ago`
-                  : `last fix ${Math.floor(sec / 60)}m ${String(sec % 60).padStart(2, '0')}s ago`;
+  return sec < 60 ? `last position ${sec}s ago`
+                  : `last position ${Math.floor(sec / 60)}m ${String(sec % 60).padStart(2, '0')}s ago`;
 }
 
-// Updates only the age line. Re-rendering the card each second would discard
-// whatever the user was typing in the van-name field.
-function tickRealVanAges() {
+// Writes the live fields in place. Re-rendering the whole card would discard
+// whatever the user was typing in the van-name field, and textContent keeps
+// street names out of the HTML parser.
+function _setText(id, text) {
+  const el = document.getElementById(id);
+  if (el && el.textContent !== text) el.textContent = text;
+}
+
+function tickRealVanCards() {
   for (const rv of realVans) {
-    const el = document.getElementById('rv-age-' + rv.id);
-    if (el) el.textContent = _realVanAgeText(rv);
+    if (rv.lat == null) continue;
+    _setText('rv-street-' + rv.id, _realVanStreetText(rv));
+    _setText('rv-city-' + rv.id, vanCityAt(rv) || '');
+    _setText('rv-age-' + rv.id, _realVanAgeText(rv));
   }
 }
 
@@ -5189,8 +5213,8 @@ function renderRealVanList() {
     const loc = rv.lat == null
       ? '<span class="real-van-waiting">Waiting for position…</span>'
       : `<div class="real-van-loc">
-           <span class="rv-street">${escHtml(rv.street || 'Unknown street')}</span>
-           <span class="rv-city">${escHtml(rv.city || '')}</span>
+           <span class="rv-street" id="rv-street-${rv.id}">${escHtml(_realVanStreetText(rv))}</span>
+           <span class="rv-city" id="rv-city-${rv.id}">${escHtml(rv.city || '')}</span>
            <span class="rv-age" id="rv-age-${rv.id}">${escHtml(_realVanAgeText(rv))}</span>
          </div>`;
     const paused  = rv.tracking === 'paused';

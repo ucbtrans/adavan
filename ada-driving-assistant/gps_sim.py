@@ -282,15 +282,14 @@ class StreetNetwork:
             node = self._exit_key(way_idx, forward)
             options = self._candidates(node, way_idx)
             if not options:
-                # Dead end: turn around and drive back out.
-                if not way["oneway"]:
-                    forward = not forward
-                    continue
-                options = [(i, e == 0) for i, e in self.at_node.get(node, ())
-                           if not (e != 0 and self.ways[i]["oneway"])]
-                if not options:
-                    way_idx, forward = self.start(rng)
-                    continue
+                # Dead end: turn around and drive back out. This has to stay on
+                # the road even at the end of a one-way. Restarting the walk
+                # somewhere else instead left the cursor interpolating a straight
+                # line from here to there -- one such jump measured 5979 m, and
+                # every one of the ~600 fixes along it landed off-road, which is
+                # what published an empty street name.
+                forward = not forward
+                continue
 
             weights = [self._weight(o, heading, way["name"], recent, target, here)
                        for o in options]
