@@ -28,15 +28,24 @@ DEV_CF_DIST="E2366H88WYS3HC"
 # Use python3 if python is not available (WSL)
 PYTHON=$(command -v python || command -v python3)
 
-echo "==> Fetching API URL from CloudFormation..."
+# Read the API URL from the stack being deployed. This used to always read the
+# prod stack, which published a dev page wired to the prod API — and prod has
+# none of the newer endpoints, so the Real van tab just 404'd.
+if [[ "$ENV" == "dev" ]]; then
+  STACK_NAME="ada-driving-assistant-dev"
+else
+  STACK_NAME="ada-driving-assistant"
+fi
+
+echo "==> Fetching API URL from CloudFormation ($STACK_NAME)..."
 API_URL=$(aws cloudformation describe-stacks \
-  --stack-name ada-driving-assistant \
+  --stack-name "$STACK_NAME" \
   --region "$REGION" \
   --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue" \
   --output text)
 
 WEB_BUCKET_V2=$(aws cloudformation describe-stacks \
-  --stack-name ada-driving-assistant \
+  --stack-name "$STACK_NAME" \
   --region "$REGION" \
   --query "Stacks[0].Outputs[?OutputKey=='WebBucketNameV2'].OutputValue" \
   --output text)
@@ -45,7 +54,8 @@ echo "    API URL       : $API_URL"
 echo "    Web bucket v2 : $WEB_BUCKET_V2"
 
 if [[ "$ENV" == "dev" ]]; then
-  VERSION_LABEL="v3.0"
+  # Keep in step with deploy.sh, which labels dev builds the same way.
+  VERSION_LABEL="v3.6"
   TARGET_BUCKETS=("$DEV_BUCKET")
   TARGET_CF_DISTS=("$DEV_CF_DIST")
   TARGET_URLS=("https://d1xjlbyixg6rri.cloudfront.net")

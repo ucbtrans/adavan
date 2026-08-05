@@ -735,6 +735,10 @@ aside h2 {
 .real-van-loc { display: flex; flex-direction: column; margin: 8px 0 0 25px; line-height: 1.35; }
 .rv-street { font-size: .82rem; color: var(--text); }
 .rv-city { font-size: .72rem; color: var(--muted); }
+.rv-age {
+  font-size: .68rem; color: var(--muted); margin-top: 2px;
+  font-variant-numeric: tabular-nums;   /* digits don't jiggle as it counts */
+}
 .real-van-waiting {
   display: block; margin: 8px 0 0 25px; font-size: .78rem;
   color: var(--muted); font-style: italic;
@@ -4861,6 +4865,15 @@ function updateVanMarker(van) {
 const REAL_VAN_POLL_MS = 5000;   // how often we pull fresh history
 const REAL_VAN_STEP_MS = 60;     // animation stepper cadence
 const REAL_VAN_MOVE_M  = 15;     // min distance to count as "driving"
+const REAL_VAN_AGE_MS  = 1000;   // "last fix" counter cadence
+
+// Driving a leg used to take a flat 6 s, so with reports a minute apart the van
+// darted to the next spot and then sat still for the other ~54 s. Caught up, a
+// leg is now stretched over the interval the two reports actually span, leaving
+// only a short pause before the next one lands.
+const REAL_VAN_LEG_FILL   = 0.9;     // fraction of the gap spent driving
+const REAL_VAN_LEG_MIN_MS = 2000;
+const REAL_VAN_LEG_MAX_MS = 90000;   // don't crawl for minutes after an outage
 
 function _loadRealVanName(id, fallback) {
   try { return localStorage.getItem('ada_realvan_name_' + id) || fallback; }
@@ -4884,6 +4897,7 @@ let realVans = [{
 }];
 let realVanInterval = null;
 let realVanStepInterval = null;
+let realVanAgeInterval = null;
 
 function _realVanLabel(rv) {
   return `${rv.name}${rv.street ? ' — ' + rv.street : ''}`;
@@ -4953,6 +4967,17 @@ async function fetchRealVanHistory(rv) {
   } catch (_) { /* transient — retry next interval */ }
 }
 
+// Time to spend driving one leg. Caught up, match the interval the two reports
+// span so the van is moving for most of it; behind, shorten it to catch up.
+function _realVanLegDuration(prev, next, backlog) {
+  if (backlog >= 8) return 1000;
+  if (backlog >= 3) return 2500;
+  const gap = Date.parse(next.ts) - Date.parse(prev.ts);
+  if (!isFinite(gap) || gap <= 0) return 6000;   // missing/!ordered timestamps
+  return Math.min(REAL_VAN_LEG_MAX_MS,
+                  Math.max(REAL_VAN_LEG_MIN_MS, gap * REAL_VAN_LEG_FILL));
+}
+
 function _stepRealVan(rv) {
   if (!fleetMap || rv.playIdx < 0) return;
   if (rv.tracking === 'paused') return;   // frozen while paused
@@ -5003,7 +5028,7 @@ function _stepRealVan(rv) {
 
   // REAL feed: drive from the current spot to the next point along a road route.
   const fromLat = rv.lat, fromLon = rv.lon;
-  const dur = backlog >= 8 ? 1000 : backlog >= 3 ? 2500 : 6000;
+  const dur = _realVanLegDuration(prev, next, backlog);
   rv._fetchingRoute = true;
   fetchOsrmRoute(fromLat, fromLon, next.lat, next.lon)
     .then(r => {
@@ -5114,6 +5139,7 @@ function startRealVanPolling() {
   tick();
   realVanInterval     = setInterval(tick, REAL_VAN_POLL_MS);
   realVanStepInterval = setInterval(_stepRealVans, REAL_VAN_STEP_MS);
+  realVanAgeInterval  = setInterval(tickRealVanAges, REAL_VAN_AGE_MS);
 }
 
 function editRealVanName(id, value) {
@@ -5125,6 +5151,37 @@ function editRealVanName(id, value) {
   renderRealVanList();
 }
 
+// ── "last fix" age ────────────────────────────────────────────────────────
+// Seconds since the newest recorded position, so it is visible whether the feed
+// is still arriving. Counts up to the reporting interval and resets on each new
+// report; a value that keeps climbing means the van (or the publisher) is quiet.
+
+function _realVanLastTs(rv) {
+  for (let i = rv.track.length - 1; i >= 0; i--) {
+    const t = rv.track[i] && rv.track[i].ts ? Date.parse(rv.track[i].ts) : NaN;
+    if (isFinite(t)) return t;
+  }
+  return NaN;
+}
+
+function _realVanAgeText(rv) {
+  const ts = _realVanLastTs(rv);
+  if (!isFinite(ts)) return '';
+  // Clamped: a browser clock running behind the server would otherwise go negative.
+  const sec = Math.max(0, Math.round((Date.now() - ts) / 1000));
+  return sec < 60 ? `last fix ${sec}s ago`
+                  : `last fix ${Math.floor(sec / 60)}m ${String(sec % 60).padStart(2, '0')}s ago`;
+}
+
+// Updates only the age line. Re-rendering the card each second would discard
+// whatever the user was typing in the van-name field.
+function tickRealVanAges() {
+  for (const rv of realVans) {
+    const el = document.getElementById('rv-age-' + rv.id);
+    if (el) el.textContent = _realVanAgeText(rv);
+  }
+}
+
 function renderRealVanList() {
   const el = document.getElementById('real-van-list');
   if (!el) return;
@@ -5134,6 +5191,7 @@ function renderRealVanList() {
       : `<div class="real-van-loc">
            <span class="rv-street">${escHtml(rv.street || 'Unknown street')}</span>
            <span class="rv-city">${escHtml(rv.city || '')}</span>
+           <span class="rv-age" id="rv-age-${rv.id}">${escHtml(_realVanAgeText(rv))}</span>
          </div>`;
     const paused  = rv.tracking === 'paused';
     const simOn   = rv.sim === 'on';
