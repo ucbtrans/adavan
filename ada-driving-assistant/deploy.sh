@@ -30,7 +30,7 @@ if [[ "$ENV" == "dev" ]]; then
   SAM_CONFIG="samconfig.dev.toml"
   API_FUNCTION="ada-api-dev"
   SIM_FUNCTION="ada-simulation-dev"
-  VERSION_LABEL="v3.6"
+  VERSION_LABEL="v3.7"
 else
   STACK_NAME="ada-driving-assistant"
   SAM_CONFIG="samconfig.toml"

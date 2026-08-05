@@ -1,7 +1,7 @@
 # Real Van Feature — Summary
 
 Everything added since introducing the real (physical) van alongside the
-simulated fleet. Current version: **v3.6**.
+simulated fleet. Current version: **v3.7**.
 
 ## 1. Icon (tag `v3.1`)
 - Created `van_real.png` (+ `van_real_16.png`) from `Honda Van.png`: **background
@@ -72,7 +72,7 @@ simulated fleet. Current version: **v3.6**.
   it was driving in reverse. `makeRealVanIcon` now flips the icon image 180° so it
   composes correctly with the heading rotation.
 
-## 8. Local GPS simulator (current, untagged)
+## 8. Local GPS simulator (tag `v3.7`)
 
 Replaces the precomputed-waypoint simulation as the way to exercise the feature
 without a van on the road. Rather than a table of coordinates inside the
@@ -100,13 +100,34 @@ everything downstream runs unmodified and is genuinely under test.
   ACTIVE mode and the map animates via OSRM, exactly as it does for the physical
   van. Tracking must be **Running** — the ingester no-ops while paused.
 
-**Routing had to be fixed twice.** The first pass excluded only the block the van
-arrived on, so at a junction it could take a different way heading straight back;
-on the real network it circled — 2.1 km driven for 273 m of progress, with
-once-a-minute samples 33 m apart, which reads on the map as a van jittering in
-place. Adding heading continuity and a destination raised the median minute to
-~504 m of the ~590 m possible at 22 mph. `tests/test_gps_sim.py` pins this down,
-along with the NMEA round-trip (worst case ~1 cm) and the published payload's
+**Routing took three passes**, and the first two were wrong in ways only visible
+on the real network:
+
+1. Excluding only the block the van arrived on let it take a different way
+   heading straight back. It circled — 2.1 km driven for 273 m of progress, with
+   once-a-minute samples 33 m apart, which reads on the map as a van jittering in
+   place. Fixed with heading continuity plus a destination.
+2. Restarting the walk at a dead end teleported the van, and because the cursor
+   interpolates between whatever points it is given it drew a straight line
+   across the city — one jump of 5979 m, with ~600 fixes off-road, which is what
+   published an empty `Street`. Fixed by turning around instead.
+3. That turnaround then exposed a **one-way trap**: way #540, `CA 13`, a one-way
+   `motorway_link`, dead-ends one end while its only neighbour at the other is
+   another one-way that would have to be driven backwards. The van drove in and
+   spent 70 km inside a 147 m box.
+
+All three were the same underlying thing — the network contains states you can
+enter but not leave. The van is now restricted to the largest
+**strongly-connected** set of (way, direction) states, computed once at startup
+with an iterative Kosaraju (4737 of 6427 states, 0.12 s). Every state in it has a
+legal route onward and back, so stranding is impossible by construction and no
+teleport is needed to recover; cul-de-sacs still work, since a U-turn is modelled
+as an edge. Median minute now advances ~549 m of the ~590 m possible at 22 mph,
+with 3% of minutes under 100 m.
+
+`tests/test_gps_sim.py` pins all of it: no state without an exit, no route step
+longer than the longest real block, half an hour of driving must roam more than a
+kilometre, the NMEA round-trip (worst case ~1 cm), and the published payload's
 four load-bearing keys.
 
 **Caveat:** `template.yaml` hard-codes one `REAL_VAN_URL` for every stack, so the
@@ -139,3 +160,4 @@ real-van feature at all. Give dev its own key before that changes.
 | v3.4 | Start/pause tracking + validation simulation |
 | v3.5 | Precomputed-waypoint simulation along a drawn route (+ single-concurrency ingester) |
 | v3.6 | Real van icon faces its direction of travel |
+| v3.7 | Local GPS simulator replaces the waypoint table; playback paced to the reporting interval; from/to street and position age on the card |

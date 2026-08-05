@@ -312,10 +312,15 @@ def save_schedule_history(van_id: str, date_str: str, event_type: str,
     items    = resp.get("Items", [])
     next_seq = 0
     if items:
+        # date_seq is "<date>#<seq>", so the counter is the last field. Reading
+        # index [2] of a two-field key raised IndexError on every call, and the
+        # except swallowed it, so next_seq stayed 0 and each entry overwrote
+        # <date>#0000 -- the version history only ever held its newest entry.
         try:
-            next_seq = int(items[0]["date_seq"].split("#")[2]) + 1
-        except Exception:
-            pass
+            next_seq = int(items[0]["date_seq"].split("#")[-1]) + 1
+        except (IndexError, ValueError, KeyError, AttributeError):
+            logger.warning("Unparseable date_seq %r; restarting history at 0",
+                           items[0].get("date_seq"))
 
     ttl = int((datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
                + timedelta(days=8)).timestamp())

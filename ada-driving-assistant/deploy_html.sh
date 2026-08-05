@@ -55,7 +55,7 @@ echo "    Web bucket v2 : $WEB_BUCKET_V2"
 
 if [[ "$ENV" == "dev" ]]; then
   # Keep in step with deploy.sh, which labels dev builds the same way.
-  VERSION_LABEL="v3.6"
+  VERSION_LABEL="v3.7"
   TARGET_BUCKETS=("$DEV_BUCKET")
   TARGET_CF_DISTS=("$DEV_CF_DIST")
   TARGET_URLS=("https://d1xjlbyixg6rri.cloudfront.net")
