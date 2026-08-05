@@ -152,10 +152,90 @@ class StreetNetwork:
                 for end in (0, len(pts) - 1):
                     self.at_node.setdefault(_node_key(*pts[end]), []).append((idx, end))
 
-        # Junctions only: destinations should be reachable places, not the loose
-        # ends of stub geometry.
-        self._target_nodes = [k for k, v in self.at_node.items() if len(v) > 1] \
-            or list(self.at_node)
+        self.drivable = self._largest_scc()
+
+        # Junctions the van can actually reach, so a destination is never one it
+        # has no legal route to.
+        reachable = {self._exit_key(s // 2, s % 2 == 0) for s in self.drivable}
+        self._target_nodes = [k for k, v in self.at_node.items()
+                              if len(v) > 1 and (not reachable or k in reachable)] \
+            or [k for k, v in self.at_node.items() if len(v) > 1] or list(self.at_node)
+
+    # -- reachability --------------------------------------------------------
+    # A "state" is one way driven in one direction, encoded as way*2 + (0 fwd,
+    # 1 reverse). Restricting the van to the largest strongly-connected set of
+    # states is what makes it impossible to get stuck: by definition every state
+    # in it has a legal route onward, and back.
+    #
+    # Both routing bugs came from states with no legal exit. Way #540, 'CA 13',
+    # a one-way motorway_link, dead-ends at one end while its only neighbour at
+    # the other is another one-way that would have to be driven backwards. The
+    # van drove in and could never leave: 70 km of driving inside a 147 m box.
+
+    def _states(self):
+        for i, w in enumerate(self.ways):
+            yield i * 2                      # forward is always legal
+            if not w["oneway"]:
+                yield i * 2 + 1              # reverse only on a two-way
+
+    def _successors(self, state):
+        i, fwd = state // 2, state % 2 == 0
+        out = []
+        for j, end in self.at_node.get(self._exit_key(i, fwd), ()):
+            if j == i:
+                continue
+            forward = (end == 0)
+            if not forward and self.ways[j]["oneway"]:
+                continue
+            out.append(j * 2 + (0 if forward else 1))
+        if not self.ways[i]["oneway"]:
+            out.append(i * 2 + (1 if fwd else 0))    # U-turn out of a cul-de-sac
+        return out
+
+    def _largest_scc(self) -> set:
+        """Kosaraju, iteratively — the state graph is far too deep to recurse."""
+        legal = set(self._states())
+        succ = {s: [t for t in self._successors(s) if t in legal] for s in legal}
+
+        seen, order = set(), []
+        for start in legal:
+            if start in seen:
+                continue
+            seen.add(start)
+            stack = [(start, iter(succ[start]))]
+            while stack:
+                node, it = stack[-1]
+                for nxt in it:
+                    if nxt not in seen:
+                        seen.add(nxt)
+                        stack.append((nxt, iter(succ[nxt])))
+                        break
+                else:
+                    order.append(node)
+                    stack.pop()
+
+        pred = {s: [] for s in legal}
+        for s, outs in succ.items():
+            for t in outs:
+                pred[t].append(s)
+
+        assigned, best = set(), []
+        for s in reversed(order):
+            if s in assigned:
+                continue
+            comp, stack = [], [s]
+            assigned.add(s)
+            while stack:
+                n = stack.pop()
+                comp.append(n)
+                for p in pred[n]:
+                    if p not in assigned:
+                        assigned.add(p)
+                        stack.append(p)
+            if len(comp) > len(best):
+                best = comp
+        # A fixture too small to have a real component: impose no restriction.
+        return set(best) if len(best) > 1 else set()
 
     def __len__(self) -> int:
         return len(self.ways)
@@ -173,6 +253,10 @@ class StreetNetwork:
         pts = self.ways[way_idx]["pts"]
         return _node_key(*(pts[-1] if forward else pts[0]))
 
+    def _usable(self, way_idx: int, forward: bool) -> bool:
+        return (not self.drivable
+                or (way_idx * 2 + (0 if forward else 1)) in self.drivable)
+
     def _candidates(self, node: tuple, came_from: int) -> list[tuple[int, bool]]:
         """Ways leaving `node`, as (way_idx, forward), excluding a U-turn."""
         out = []
@@ -183,11 +267,16 @@ class StreetNetwork:
             # A one-way street can only be entered at its first vertex.
             if not forward and self.ways[way_idx]["oneway"]:
                 continue
+            if not self._usable(way_idx, forward):
+                continue        # entering here would strand the van
             out.append((way_idx, forward))
         return out
 
     def start(self, rng: random.Random) -> tuple[int, bool]:
-        """Pick a way that actually connects to something."""
+        """Pick somewhere the van can drive away from."""
+        if self.drivable:
+            state = sorted(self.drivable)[rng.randrange(len(self.drivable))]
+            return state // 2, state % 2 == 0
         for _ in range(500):
             idx = rng.randrange(len(self.ways))
             for forward in (True, False):
@@ -282,12 +371,12 @@ class StreetNetwork:
             node = self._exit_key(way_idx, forward)
             options = self._candidates(node, way_idx)
             if not options:
-                # Dead end: turn around and drive back out. This has to stay on
-                # the road even at the end of a one-way. Restarting the walk
-                # somewhere else instead left the cursor interpolating a straight
-                # line from here to there -- one such jump measured 5979 m, and
-                # every one of the ~600 fixes along it landed off-road, which is
-                # what published an empty street name.
+                # A cul-de-sac: turn around and drive back out, which is what a
+                # real van does. Restarting the walk elsewhere instead left the
+                # cursor interpolating a straight line across the city -- one
+                # such jump measured 5979 m and put ~600 fixes off-road. Staying
+                # inside the drivable set means this is always a way back out,
+                # never the only move available forever.
                 forward = not forward
                 continue
 

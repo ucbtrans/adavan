@@ -475,8 +475,48 @@ class TestRouteStaysOnTheRoad(unittest.TestCase):
         for a, b in zip(pts, pts[1:]):
             self.assertLess(haversine_m(a[0], a[1], b[0], b[1]), 500,
                             "walk teleported between disconnected blocks")
-        self.assertEqual({p[2] for p in pts}, {pts[0][2]},
-                         "should stay on the block it started on")
+        self.assertEqual({p[2] for p in pts}, {"Far Away Road"},
+                         "the one-way with no legal exit should never be driven")
+
+    def test_every_drivable_state_has_somewhere_to_go(self):
+        """
+        The invariant that makes getting stuck impossible. Way #540, 'CA 13', a
+        one-way motorway_link, dead-ended one way and was reachable only by
+        driving another one-way backwards the other; the van drove in and spent
+        70 km inside a 147 m box.
+        """
+        stranded = [s for s in self.net.drivable
+                    if not any(t in self.net.drivable
+                               for t in self.net._successors(s))]
+        self.assertEqual(stranded, [], f"{len(stranded)} states have no legal exit")
+
+    def test_a_one_way_sink_is_not_drivable(self):
+        """A one-way that dead-ends is a trap and must be left out."""
+        streets = [{"name": "Main Street", "lanes_backward": 1, "highway": "residential",
+                    "segments": [[{"lat": 37.800, "lon": -122.300},
+                                  {"lat": 37.801, "lon": -122.300}]]},
+                   {"name": "Sink Ramp", "lanes_backward": 0, "highway": "motorway_link",
+                    "segments": [[{"lat": 37.801, "lon": -122.300},
+                                  {"lat": 37.802, "lon": -122.299}]]}]
+        net = gps_sim.StreetNetwork(streets)
+        sink = next(i for i, w in enumerate(net.ways) if w["name"] == "Sink Ramp")
+        self.assertFalse(net._usable(sink, True),
+                         "a one-way into a dead end must not be drivable")
+        pts = [next(net.drive(random.Random(0))) for _ in range(30)]
+        self.assertNotIn("Sink Ramp", {p[2] for p in pts})
+
+    def test_van_keeps_covering_new_ground(self):
+        """Half an hour of driving should roam, not orbit one block."""
+        for seed in self.SEEDS:
+            with self.subTest(seed=seed):
+                c = gps_sim.Cursor(self.net.drive(random.Random(seed)))
+                pts = [c.advance(22 * gps_sim.MPH_TO_MPS) for _ in range(1800)]
+                lats = [p[0] for p in pts]
+                lons = [p[1] for p in pts]
+                span = haversine_m(min(lats), min(lons), max(lats), max(lons))
+                self.assertGreater(span, 1000,
+                                   f"seed {seed} stayed inside a {span:.0f} m box "
+                                   f"over 30 minutes of driving")
 
 
 class TestWaitOrStop(unittest.TestCase):
