@@ -34,6 +34,7 @@ import argparse
 import csv
 import json
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 
@@ -185,9 +186,16 @@ def publish_loop(csv_path: str = DEFAULT_CSV,
                  region: str = DEFAULT_REGION,
                  interval: float = 60.0,
                  dry_run: bool = False,
-                 quiet: bool = False) -> None:
-    """Publish every `interval` seconds until interrupted."""
-    while True:
+                 quiet: bool = False,
+                 stop: threading.Event | None = None) -> None:
+    """
+    Publish every `interval` seconds until interrupted.
+
+    `stop` lets the caller end the wait early. gps_sim passes its shutdown flag,
+    so a Ctrl-C does not have to wait out an interval that may be a minute long.
+    """
+    stop = stop or threading.Event()
+    while not stop.is_set():
         try:
             payload = publish_once(csv_path, bucket, key, region, dry_run, quiet=False)
             if quiet and payload:
@@ -196,7 +204,14 @@ def publish_loop(csv_path: str = DEFAULT_CSV,
                       f"{payload['Longitude']:.6f} {payload['Street']}")
         except Exception as exc:
             print(f"position_to_s3: {type(exc).__name__}: {exc}")
-        time.sleep(interval)
+        # Sliced rather than one long wait, so a stop set while we are idle here
+        # is noticed promptly -- see the note on gps_sim.wait_or_stop.
+        deadline = time.monotonic() + interval
+        while not stop.is_set():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            stop.wait(min(0.2, remaining))
 
 
 def build_parser() -> argparse.ArgumentParser:

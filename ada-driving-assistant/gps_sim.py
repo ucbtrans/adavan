@@ -20,7 +20,7 @@ Usage:
     python gps_sim.py --stop-every-min 3       # pause at times, to exercise
                                                # the ingester's STATIONED mode
 
-Stop with Ctrl-C.
+Ctrl-C stops it; press it twice to give up on a slow S3 upload and exit at once.
 """
 
 from __future__ import annotations
@@ -29,7 +29,9 @@ import argparse
 import csv
 import os
 import random
+import signal
 import sys
+import threading
 import time
 from collections import deque
 from datetime import datetime, timezone
@@ -44,6 +46,56 @@ CSV_FIELDS = ["Camera_time", "GPS_time", "Latitude", "Latitude_direction",
 
 DEFAULT_CSV = "van_gps.csv"
 MPH_TO_MPS = 0.44704
+
+# ── Shutdown ─────────────────────────────────────────────────────────────────
+# Every wait in the process is Event.wait on this flag rather than time.sleep, so
+# a Ctrl-C is acted on at once. Relying on KeyboardInterrupt landing inside a
+# sleep meant waiting out the current one -- up to a second in the fix loop, and
+# up to a full --interval in the uploader thread.
+STOP = threading.Event()
+STOP_TICK = 0.2      # granularity of an interruptible wait, in seconds
+
+
+def wait_or_stop(seconds: float, stop: threading.Event = STOP) -> bool:
+    """Wait up to `seconds`, returning True as soon as a stop is requested.
+
+    Waits in short slices rather than one long one. On Windows a Python signal
+    handler only runs between bytecodes, so a thread parked in a single
+    Event.wait can sit out the entire timeout before it even sees the signal --
+    measured at 4.4 s to quit a loop with a 5 s period. Slicing caps that at
+    STOP_TICK no matter which signal arrived.
+    """
+    deadline = time.monotonic() + seconds
+    while not stop.is_set():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        stop.wait(min(STOP_TICK, remaining))
+    return stop.is_set()
+
+
+def install_signal_handlers() -> None:
+    """First signal asks for a clean stop; a second one gives up and exits.
+
+    The second is the escape hatch for a wedged network call in the uploader:
+    that runs on a daemon thread, so a hard exit cannot leave it orphaned.
+    """
+    def handler(signum, frame):
+        if STOP.is_set():
+            print("\ngps_sim: forced exit", flush=True)
+            os._exit(130)
+        print("\ngps_sim: stopping...", flush=True)
+        STOP.set()
+
+    # SIGBREAK is Windows-only; SIGTERM is what a process kill sends.
+    for name in ("SIGINT", "SIGTERM", "SIGBREAK"):
+        sig = getattr(signal, name, None)
+        if sig is None:
+            continue
+        try:
+            signal.signal(sig, handler)
+        except (ValueError, OSError):
+            pass        # not the main thread, or unsupported on this platform
 
 
 # ── Street network ───────────────────────────────────────────────────────────
@@ -404,13 +456,12 @@ def run(opt) -> int:
     print("         Ctrl-C to stop")
 
     if opt.publish:
-        import threading
         import position_to_s3
         threading.Thread(
             target=position_to_s3.publish_loop,
             kwargs=dict(csv_path=opt.csv, bucket=opt.bucket, key=opt.key,
                         region=opt.region, interval=opt.interval,
-                        dry_run=opt.dry_run, quiet=True),
+                        dry_run=opt.dry_run, quiet=True, stop=STOP),
             daemon=True,
         ).start()
 
@@ -418,7 +469,7 @@ def run(opt) -> int:
     stop_until = 0.0
     lat, lon, street = cursor.cur
     try:
-        while True:
+        while not STOP.is_set():
             now = datetime.now(timezone.utc)
             moving = time.time() >= stop_until
             if moving:
@@ -432,12 +483,14 @@ def run(opt) -> int:
                 print(f"  {fixes} fixes | {cursor.metres/1000:.2f} km | "
                       f"{lat:.6f},{lon:.6f} | {street}"
                       f"{'' if moving else ' | STOPPED'}      ", end="\r")
-            time.sleep(period)
+            if wait_or_stop(period):
+                break
     except KeyboardInterrupt:
-        print(f"\ngps_sim: stopped after {fixes} fixes, "
-              f"{cursor.metres/1000:.2f} km driven")
+        pass            # no handler installed (e.g. run off the main thread)
     finally:
         log.close()
+    print(f"\ngps_sim: stopped after {fixes} fixes, "
+          f"{cursor.metres/1000:.2f} km driven")
     return 0
 
 
@@ -471,4 +524,5 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 if __name__ == "__main__":
+    install_signal_handlers()
     sys.exit(run(build_parser().parse_args()))

@@ -14,6 +14,8 @@ import json
 import os
 import random
 import tempfile
+import threading
+import time
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -420,6 +422,67 @@ class TestDriveMakesProgress(unittest.TestCase):
         stalled = [h for h in hops if h < 100]
         self.assertLess(len(stalled) / len(hops), 0.20,
                         f"{len(stalled)}/{len(hops)} minutes advanced under 100 m")
+
+
+class TestWaitOrStop(unittest.TestCase):
+    """
+    Regression: Ctrl-C took seconds and several presses. Each loop slept its
+    full period before noticing, and on Windows a Python signal handler only
+    runs between bytecodes, so even a single Event.wait sat out its whole
+    timeout -- 4.4 s measured on a loop with a 5 s period. Waiting in slices
+    caps that at STOP_TICK.
+    """
+
+    def setUp(self):
+        self.ev = threading.Event()
+
+    def test_returns_immediately_when_already_stopped(self):
+        self.ev.set()
+        t0 = time.monotonic()
+        self.assertTrue(gps_sim.wait_or_stop(30.0, self.ev))
+        self.assertLess(time.monotonic() - t0, 0.5)
+
+    def test_waits_out_the_period_when_not_stopped(self):
+        t0 = time.monotonic()
+        self.assertFalse(gps_sim.wait_or_stop(0.5, self.ev))
+        self.assertGreaterEqual(time.monotonic() - t0, 0.45)
+
+    def test_wakes_promptly_when_stopped_mid_wait(self):
+        threading.Timer(0.2, self.ev.set).start()
+        t0 = time.monotonic()
+        self.assertTrue(gps_sim.wait_or_stop(10.0, self.ev))
+        elapsed = time.monotonic() - t0
+        self.assertLess(elapsed, 1.0, f"took {elapsed:.2f}s to notice the stop")
+
+    def test_slices_are_short_enough_to_stay_responsive(self):
+        self.assertLessEqual(gps_sim.STOP_TICK, 0.5)
+
+    def test_zero_and_negative_waits_do_not_hang(self):
+        self.assertFalse(gps_sim.wait_or_stop(0, self.ev))
+        self.assertFalse(gps_sim.wait_or_stop(-1, self.ev))
+
+
+class TestPublishLoopStops(unittest.TestCase):
+
+    def test_stop_event_ends_the_loop_without_waiting_the_interval(self):
+        ev = threading.Event()
+        calls = []
+        with patch.object(pub, "publish_once", side_effect=lambda *a, **k: calls.append(1)):
+            t = threading.Thread(target=pub.publish_loop,
+                                 kwargs=dict(interval=30.0, stop=ev, quiet=True))
+            t.start()
+            time.sleep(0.3)
+            ev.set()
+            t.join(timeout=3.0)
+        self.assertFalse(t.is_alive(), "publish_loop ignored the stop event")
+        self.assertEqual(len(calls), 1, "should have published once before stopping")
+
+    def test_returns_at_once_if_stopped_before_starting(self):
+        ev = threading.Event()
+        ev.set()
+        with patch.object(pub, "publish_once") as once:
+            pub.publish_loop(interval=30.0, stop=ev, quiet=True)
+        once.assert_not_called()
 
 
 class TestStreetAt(unittest.TestCase):
